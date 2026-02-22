@@ -1,0 +1,102 @@
+@import '@fontsource/plus-jakarta-sans/400.css';
+@import '@fontsource/plus-jakarta-sans/500.css';
+@import '@fontsource/plus-jakarta-sans/600.css';
+@import '@fontsource/plus-jakarta-sans/700.css';
+@import '@fontsource/material-symbols-outlined';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary-color: #13b6ec;
+  --surface-color: #1a2c32;
+  --background-color: #101d22;
+  --secondary-color: #92bbc9;
+  --text-color: #f8fafc;
+  --border-radius: 16px;
+  --font-family: 'Plus Jakarta Sans';
+  --base-font-size: 16px;
+}
+
+body {
+  background-color: var(--background-color);
+  color: var(--text-color);
+  font-family: var(--font-family), sans-serif;
+  font-size: var(--base-font-size);
+  overflow: hidden;
+  transition: background-color 0.3s ease, color 0.3s ease, font-size 0.3s ease;
+}
+
+h1, h2, h3, h4, h5, h6, p, span, input, textarea, button {
+  color: inherit;
+}
+
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined' !important;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* Theme Specific Effects */
+.theme-retro80s {
+  background-image: linear-gradient(rgba(139, 92, 246, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(139, 92, 246, 0.05) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+.theme-retro80s .message-bubble-ai {
+  box-shadow: 0 0 10px rgba(236, 19, 182, 0.3);
+  text-shadow: 0 0 5px rgba(0, 255, 255, 0.5);
+}
+
+.theme-gameboy {
+  image-rendering: pixelated;
+}
+.theme-gameboy .material-symbols-outlined {
+  font-size: 1.2em;
+}
+
+/* Global High Contrast for Light Themes */
+:is(.theme-wechat, .theme-facebook, .theme-gameboy, .theme-lumina-light) .opacity-30 { opacity: 0.6 !important; }
+:is(.theme-wechat, .theme-facebook, .theme-gameboy, .theme-lumina-light) .opacity-40 { opacity: 0.75 !important; }
+:is(.theme-wechat, .theme-facebook, .theme-gameboy, .theme-lumina-light) .opacity-50 { opacity: 0.8 !important; }
+:is(.theme-wechat, .theme-facebook, .theme-gameboy, .theme-lumina-light) .opacity-60 { opacity: 0.9 !important; }
+
+:is(.theme-wechat, .theme-facebook, .theme-gameboy, .theme-lumina-light) .placeholder\:opacity-30::placeholder {
+  opacity: 0.7 !important;
+}
+
+:is(.theme-wechat, .theme-facebook, .theme-gameboy, .theme-lumina-light) .text-slate-400,
+:is(.theme-wechat, .theme-facebook, .theme-gameboy, .theme-lumina-light) .text-slate-500 {
+  color: var(--secondary-color) !important;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(128,128,128,0.3);
+  border-radius: 10px;
+}
+
+.message-bubble-user {
+  background: var(--primary-color);
+  color: #ffffff;
+}
+.message-bubble-ai {
+  background: var(--surface-color);
+  border: 1px solid rgba(128,128,128,0.2);
+  color: var(--text-color);
+}
+
+.theme-wechat .message-bubble-user { color: #000000; }
+.theme-gameboy .message-bubble-user { color: #0f380f; }
+
+.rounded-3xl { border-radius: var(--border-radius); }
+.rounded-2xl { border-radius: calc(var(--border-radius) * 0.75); }
+.rounded-xl { border-radius: calc(var(--border-radius) * 0.5); }
+
+.markdown-content p { margin-bottom: 0.5rem; }
+.markdown-content p:last-child { margin-bottom: 0; }

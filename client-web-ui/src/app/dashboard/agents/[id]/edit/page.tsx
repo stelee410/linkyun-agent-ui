@@ -1,0 +1,2551 @@
+"use client";
+
+import { useEffect, useState, useRef, useMemo } from "react";
+import { useParams, usePathname, useRouter } from "next/navigation";
+import Link from "next/link";
+import { getAuth } from "@/lib/auth";
+import {
+  getAgent,
+  updateAgent,
+  resetEdgeToken,
+  listCreatorSkills,
+  updateCreatorSkill,
+  deleteCreatorSkill,
+  listAgentPostSkills,
+  setAgentPostSkills,
+  listAgentMidSkills,
+  setAgentMidSkills,
+  listAgentPreSkills,
+  setAgentPreSkills,
+  simulateAgent,
+  getAgentAvatar,
+  listKnowledgeBases,
+  type Agent,
+  type KnowledgeBase,
+  type ExampleMessage,
+  type CreatorSkill,
+  type AgentPostSkill,
+  type AgentMidSkill,
+  type AgentPreSkill,
+  listAgentMoments,
+  deleteMoment,
+  addMomentComment,
+  getBaseUrl,
+  getLLMProviders,
+  generateMomentAutoSchedule,
+  getMomentAutoSchedule,
+  deleteMomentAutoSchedule,
+  type MomentItem,
+  type LLMProvider,
+  type MomentAutoScheduleResult,
+  type MomentScheduleItem,
+} from "@/lib/api";
+import { AvatarUpload } from "@/components/AvatarUpload";
+import { AgentTestDialog } from "@/components/AgentTestDialog";
+import { PostMomentDialog } from "@/components/PostMomentDialog";
+import { BackIcon, SaveIcon, PublishIcon, ArchiveIcon, TestPlayIcon } from "@/components/icons";
+
+interface DisplayMessage {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+}
+
+import { SkillIconBadge } from "@/lib/skillIcons";
+
+const SEARCHABLE_ENUM_THRESHOLD = 15;
+
+function SearchableEnumSelect({
+  value,
+  options,
+  labels,
+  onChange,
+  placeholder = "请选择...",
+  className,
+}: {
+  value: string;
+  options: string[];
+  labels?: Record<string, string>;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  className?: string;
+}) {
+  const [search, setSearch] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const filtered = useMemo(() => {
+    if (!search) return options;
+    const s = search.toLowerCase();
+    return options.filter((v) => {
+      const label = labels?.[v] || v;
+      return v.toLowerCase().includes(s) || label.toLowerCase().includes(s);
+    });
+  }, [options, labels, search]);
+
+  const groups = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const v of filtered) {
+      const label = labels?.[v] || v;
+      const sepIdx = label.indexOf(" · ");
+      const group = sepIdx > 0 ? label.substring(0, sepIdx) : "其他";
+      if (!map[group]) map[group] = [];
+      map[group].push(v);
+    }
+    return map;
+  }, [filtered, labels]);
+
+  const displayLabel = value ? (labels?.[value] || value) : "";
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => { setIsOpen(!isOpen); if (!isOpen) setSearch(""); }}
+        className={className || "w-full px-4 py-2 bg-slate-50 dark:bg-slate-900 border border-border rounded-lg text-left text-text-primary focus:ring-2 focus:ring-primary focus:outline-none truncate"}
+      >
+        {displayLabel || <span className="text-text-secondary">{placeholder}</span>}
+      </button>
+      {isOpen && (
+        <div className="absolute z-30 w-full mt-1 bg-surface border border-border rounded-lg shadow-xl overflow-hidden">
+          <div className="p-2 border-b border-border">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="搜索..."
+              className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-border rounded text-sm text-text-primary placeholder-text-secondary focus:ring-1 focus:ring-primary focus:outline-none"
+              autoFocus
+            />
+          </div>
+          <div className="max-h-56 overflow-y-auto">
+            <div
+              onClick={() => { onChange(""); setIsOpen(false); }}
+              className="px-3 py-1.5 text-sm text-text-secondary hover:bg-primary/10 cursor-pointer"
+            >
+              {placeholder}
+            </div>
+            {Object.entries(groups).map(([group, items]) => (
+              <div key={group}>
+                <div className="px-3 py-1 text-xs font-medium text-text-secondary bg-slate-100 dark:bg-slate-800/50 sticky top-0">
+                  {group}
+                </div>
+                {items.map((v) => {
+                  const label = labels?.[v] || v;
+                  const name = label.includes(" · ") ? label.split(" · ").slice(1).join(" · ") : label;
+                  return (
+                    <div
+                      key={v}
+                      onClick={() => { onChange(v); setIsOpen(false); }}
+                      className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-primary/10 flex items-center justify-between ${
+                        v === value ? "bg-primary/5 text-primary" : "text-text-primary"
+                      }`}
+                    >
+                      <span className="truncate">{name}</span>
+                      <span className="text-[10px] text-text-secondary ml-2 font-mono shrink-0">{v}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+            {filtered.length === 0 && (
+              <div className="px-3 py-4 text-sm text-text-secondary text-center">无匹配结果</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MidSkillConfigModal({
+  skillName,
+  initialRolePrompt,
+  onSave,
+  onClose,
+}: {
+  skillName: string;
+  initialRolePrompt: string;
+  onSave: (rolePrompt: string) => void;
+  onClose: () => void;
+}) {
+  const [rolePrompt, setRolePrompt] = useState(initialRolePrompt);
+  useEffect(() => {
+    setRolePrompt(initialRolePrompt);
+  }, [initialRolePrompt]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div
+        className="absolute inset-0 bg-black/60"
+        onClick={onClose}
+        aria-hidden
+      />
+      <div
+        className="relative z-10 w-full max-w-md rounded-xl bg-surface border border-border p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-medium text-text-primary mb-2">配置角色设定 - {skillName}</h3>
+        <p className="text-sm text-text-secondary mb-3">此设定将注入到 system prompt，引导 LLM 按该身份回复</p>
+        <textarea
+          value={rolePrompt}
+          onChange={(e) => setRolePrompt(e.target.value)}
+          placeholder="你是一位专业的客服，请始终以友好、专业的态度回复。"
+          rows={6}
+          className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-border rounded-lg text-text-primary placeholder-text-secondary focus:ring-2 focus:ring-primary focus:border-transparent focus:outline-none text-sm resize-y"
+        />
+        <p className="text-xs text-text-secondary mt-2">配置将立即保存</p>
+        <div className="flex justify-end gap-2 mt-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-text-secondary hover:text-text-primary"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={() => onSave(rolePrompt)}
+            className="px-4 py-2 bg-primary text-white rounded-lg hover:opacity-90"
+          >
+            确定
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MidSkillGenericConfigModal({
+  skillName,
+  configSchema,
+  initialConfig,
+  onSave,
+  onClose,
+}: {
+  skillName: string;
+  configSchema: { properties?: Record<string, { type?: string; description?: string; default?: unknown; enum?: string[]; enumLabels?: Record<string, string> }>; required?: string[] };
+  initialConfig: Record<string, unknown>;
+  onSave: (config: Record<string, unknown>) => void;
+  onClose: () => void;
+}) {
+  const [config, setConfig] = useState<Record<string, unknown>>(initialConfig);
+  useEffect(() => {
+    setConfig(initialConfig);
+  }, [initialConfig]);
+
+  const schema = configSchema?.properties;
+  if (!schema || Object.keys(schema).length === 0) return null;
+
+  const required = new Set(configSchema.required || []);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} aria-hidden />
+      <div
+        className="relative z-10 w-full max-w-md rounded-xl bg-surface border border-border p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-medium text-text-primary mb-2">配置 - {skillName}</h3>
+        <p className="text-sm text-text-secondary mb-4">Agent 级配置，会覆盖 Marketplace 中的默认值</p>
+        <div className="space-y-3 max-h-64 overflow-y-auto">
+          {Object.entries(schema).map(([key, prop]) => {
+            const isSecret = /api_key|password|secret|token/i.test(key);
+            const desc = prop?.description || key;
+            const enumVals = prop?.enum;
+            const enumLabels = prop?.enumLabels;
+            const useSearchable = enumVals && enumVals.length > SEARCHABLE_ENUM_THRESHOLD && enumLabels;
+            return (
+              <div key={key}>
+                <label className="block text-sm text-text-secondary mb-1">
+                  {key}
+                  {required.has(key) && <span className="text-amber-400 ml-1">*</span>}
+                  {desc && desc !== key && <span className="block text-xs text-text-secondary mt-0.5">{desc}</span>}
+                </label>
+                {useSearchable ? (
+                  <SearchableEnumSelect
+                    value={String(config[key] ?? "")}
+                    options={enumVals}
+                    labels={enumLabels}
+                    onChange={(v) => setConfig((c) => ({ ...c, [key]: v }))}
+                    placeholder={required.has(key) ? "必填" : "选填"}
+                  />
+                ) : enumVals && enumVals.length > 0 ? (
+                  <select
+                    value={String(config[key] ?? "")}
+                    onChange={(e) => setConfig((c) => ({ ...c, [key]: e.target.value }))}
+                    className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-900 border border-border rounded-lg text-text-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                  >
+                    <option value="">请选择...</option>
+                    {enumVals.map((v) => (
+                      <option key={v} value={v}>{enumLabels?.[v] || v}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type={isSecret ? "password" : "text"}
+                    value={String(config[key] ?? "")}
+                    onChange={(e) => setConfig((c) => ({ ...c, [key]: e.target.value }))}
+                    placeholder={required.has(key) ? "必填" : "选填"}
+                    autoComplete={isSecret ? "off" : undefined}
+                    className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-900 border border-border rounded-lg text-text-primary placeholder-text-secondary focus:ring-2 focus:ring-primary focus:outline-none"
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex justify-end gap-2 mt-4">
+          <button type="button" onClick={onClose} className="px-4 py-2 text-text-secondary hover:text-text-primary">
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={() => onSave(config)}
+            className="px-4 py-2 bg-primary text-white rounded-lg hover:opacity-90"
+          >
+            确定
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CreatorSkillConfigModal({
+  skillName,
+  configSchema,
+  initialConfig,
+  onSave,
+  onClose,
+  saving,
+}: {
+  skillName: string;
+  configSchema: { properties?: Record<string, { type?: string; description?: string; default?: unknown; enum?: string[]; enumLabels?: Record<string, string> }>; required?: string[] };
+  initialConfig: Record<string, unknown>;
+  onSave: (config: Record<string, unknown>) => void;
+  onClose: () => void;
+  saving?: boolean;
+}) {
+  const [config, setConfig] = useState<Record<string, unknown>>(initialConfig);
+  useEffect(() => {
+    setConfig(initialConfig);
+  }, [initialConfig]);
+
+  const schema = configSchema?.properties;
+  if (!schema || Object.keys(schema).length === 0) return null;
+
+  const required = new Set(configSchema.required || []);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} aria-hidden />
+      <div
+        className="relative z-10 w-full max-w-lg rounded-xl bg-surface border border-border p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-medium text-text-primary mb-1">配置参数 - {skillName}</h3>
+        <p className="text-sm text-text-secondary mb-4">填写技能所需的配置参数</p>
+        <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+          {Object.entries(schema).map(([key, prop]) => {
+            const isSecret = /api_key|password|secret|token/i.test(key);
+            const desc = prop?.description || key;
+            const isRequired = required.has(key);
+            const enumVals = prop?.enum;
+            const enumLabels = prop?.enumLabels;
+            const useSearchable = enumVals && enumVals.length > SEARCHABLE_ENUM_THRESHOLD && enumLabels;
+            return (
+              <div key={key}>
+                <label className="block text-sm text-text-secondary mb-1">
+                  <span className="flex items-center gap-2">
+                    <code className="font-mono text-text-secondary">{key}</code>
+                    {isRequired && <span className="text-[10px] px-1 py-0.5 rounded bg-amber-500/20 text-amber-400">必填</span>}
+                  </span>
+                  {desc && desc !== key && <span className="block text-xs text-text-secondary mt-0.5">{desc}</span>}
+                </label>
+                {useSearchable ? (
+                  <SearchableEnumSelect
+                    value={String(config[key] ?? "")}
+                    options={enumVals}
+                    labels={enumLabels}
+                    onChange={(v) => setConfig((c) => ({ ...c, [key]: v }))}
+                    placeholder={isRequired ? "必填" : "请选择..."}
+                  />
+                ) : enumVals && enumVals.length > 0 ? (
+                  <select
+                    value={String(config[key] ?? "")}
+                    onChange={(e) => setConfig((c) => ({ ...c, [key]: e.target.value }))}
+                    className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-900 border border-border rounded-lg text-text-primary focus:ring-2 focus:ring-primary focus:outline-none"
+                  >
+                    <option value="">请选择...</option>
+                    {enumVals.map((v) => (
+                      <option key={v} value={v}>{enumLabels?.[v] || v}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type={isSecret ? "password" : "text"}
+                    value={String(config[key] ?? "")}
+                    onChange={(e) => setConfig((c) => ({ ...c, [key]: e.target.value }))}
+                    placeholder={isRequired ? "必填" : prop?.default !== undefined ? `默认: ${prop.default}` : "选填"}
+                    autoComplete={isSecret ? "off" : undefined}
+                    className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-900 border border-border rounded-lg text-text-primary placeholder-text-secondary focus:ring-2 focus:ring-primary focus:outline-none"
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex justify-end gap-2 mt-4">
+          <button type="button" onClick={onClose} className="px-4 py-2 text-text-secondary hover:text-text-primary">
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={() => onSave(config)}
+            disabled={saving}
+            className="px-4 py-2 bg-primary text-white rounded-lg hover:opacity-90 disabled:opacity-50"
+          >
+            {saving ? "保存中..." : "保存"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TwoTabSkillConfigModal({
+  skillName,
+  configSchema,
+  globalConfig,
+  agentConfig,
+  onSaveGlobal,
+  onSaveAgent,
+  onClose,
+  savingGlobal,
+}: {
+  skillName: string;
+  configSchema: { properties?: Record<string, { type?: string; description?: string; default?: unknown; enum?: string[]; enumLabels?: Record<string, string> }>; required?: string[] };
+  globalConfig: Record<string, unknown>;
+  agentConfig: Record<string, unknown>;
+  onSaveGlobal: (config: Record<string, unknown>) => void;
+  onSaveAgent: (config: Record<string, unknown>) => void;
+  onClose: () => void;
+  savingGlobal?: boolean;
+}) {
+  const [activeTab, setActiveTab] = useState<"global" | "agent">("agent");
+  const [gConfig, setGConfig] = useState<Record<string, unknown>>(globalConfig);
+  const [aConfig, setAConfig] = useState<Record<string, unknown>>(agentConfig);
+  useEffect(() => { setGConfig(globalConfig); }, [globalConfig]);
+  useEffect(() => { setAConfig(agentConfig); }, [agentConfig]);
+
+  const schema = configSchema?.properties;
+  if (!schema || Object.keys(schema).length === 0) return null;
+
+  const required = new Set(configSchema.required || []);
+
+  const renderField = (
+    key: string,
+    prop: { type?: string; description?: string; default?: unknown; enum?: string[]; enumLabels?: Record<string, string> },
+    value: unknown,
+    onChange: (val: string) => void,
+    placeholder?: string,
+  ) => {
+    const isSecret = /api_key|password|secret|token/i.test(key);
+    const desc = prop?.description || key;
+    const isRequired = activeTab === "global" && required.has(key);
+    const enumVals = prop?.enum;
+    const enumLabels = prop?.enumLabels;
+    const useSearchable = enumVals && enumVals.length > SEARCHABLE_ENUM_THRESHOLD && enumLabels;
+
+    return (
+      <div key={key}>
+        <label className="block text-sm text-text-secondary mb-1">
+          <span className="flex items-center gap-2">
+            <code className="font-mono text-text-secondary">{key}</code>
+            {isRequired && <span className="text-[10px] px-1 py-0.5 rounded bg-amber-500/20 text-amber-400">必填</span>}
+          </span>
+          {desc && desc !== key && <span className="block text-xs text-text-secondary mt-0.5">{desc}</span>}
+        </label>
+        {useSearchable ? (
+          <SearchableEnumSelect
+            value={String(value ?? "")}
+            options={enumVals}
+            labels={enumLabels}
+            onChange={onChange}
+            placeholder={placeholder || "请选择..."}
+          />
+        ) : enumVals && enumVals.length > 0 ? (
+          <select
+            value={String(value ?? "")}
+            onChange={(e) => onChange(e.target.value)}
+            className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-900 border border-border rounded-lg text-text-primary focus:ring-2 focus:ring-primary focus:outline-none"
+          >
+            <option value="">{placeholder || "请选择..."}</option>
+            {enumVals.map((v) => (
+              <option key={v} value={v}>{enumLabels?.[v] || v}</option>
+            ))}
+          </select>
+        ) : (
+          <input
+            type={isSecret ? "password" : "text"}
+            value={String(value ?? "")}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={placeholder || (isRequired ? "必填" : prop?.default !== undefined ? `默认: ${prop.default}` : "选填")}
+            autoComplete={isSecret ? "off" : undefined}
+            className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-900 border border-border rounded-lg text-text-primary placeholder-text-secondary focus:ring-2 focus:ring-primary focus:outline-none"
+          />
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} aria-hidden />
+      <div
+        className="relative z-10 w-full max-w-lg rounded-xl bg-surface border border-border p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-medium text-text-primary mb-3">配置 - {skillName}</h3>
+
+        {/* Tab 切换 */}
+        <div className="flex border-b border-border mb-4">
+          <button
+            type="button"
+            onClick={() => setActiveTab("global")}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === "global"
+                ? "border-primary text-primary"
+                : "border-transparent text-text-secondary hover:text-text-primary"
+            }`}
+          >
+            全局配置
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("agent")}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === "agent"
+                ? "border-primary text-primary"
+                : "border-transparent text-text-secondary hover:text-text-primary"
+            }`}
+          >
+            Agent 配置
+          </button>
+        </div>
+
+        {activeTab === "global" ? (
+          <>
+            <p className="text-xs text-text-secondary mb-3">所有 Agent 共享的默认配置</p>
+            <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
+              {Object.entries(schema).map(([key, prop]) =>
+                renderField(key, prop, gConfig[key], (val) =>
+                  setGConfig((c) => ({ ...c, [key]: val }))
+                )
+              )}
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <button type="button" onClick={onClose} className="px-4 py-2 text-text-secondary hover:text-text-primary">
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => onSaveGlobal(gConfig)}
+                disabled={savingGlobal}
+                className="px-4 py-2 bg-primary text-white rounded-lg hover:opacity-90 disabled:opacity-50"
+              >
+                {savingGlobal ? "保存中..." : "保存全局配置"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-xs text-text-secondary mb-3">仅当前 Agent 生效，留空的字段使用全局配置的值</p>
+            <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
+              {Object.entries(schema).map(([key, prop]) => {
+                const globalVal = gConfig[key];
+                const hint = globalVal ? `全局: ${String(globalVal)}` : (prop?.default !== undefined ? `默认: ${prop.default}` : "留空=使用全局");
+                return renderField(key, prop, aConfig[key], (val) =>
+                  setAConfig((c) => ({ ...c, [key]: val })),
+                  hint,
+                );
+              })}
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <button type="button" onClick={onClose} className="px-4 py-2 text-text-secondary hover:text-text-primary">
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => onSaveAgent(aConfig)}
+                className="px-4 py-2 bg-primary text-white rounded-lg hover:opacity-90"
+              >
+                保存 Agent 配置
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PostSkillConfigModal({
+  skillName,
+  initialWords,
+  onSave,
+  onClose,
+}: {
+  skillName: string;
+  initialWords: string;
+  onSave: (words: string) => void;
+  onClose: () => void;
+}) {
+  const [words, setWords] = useState(initialWords);
+  useEffect(() => {
+    setWords(initialWords);
+  }, [initialWords]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div
+        className="absolute inset-0 bg-black/60"
+        onClick={onClose}
+        aria-hidden
+      />
+      <div
+        className="relative z-10 w-full max-w-md rounded-xl bg-surface border border-border p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-medium text-text-primary mb-2">配置敏感词 - {skillName}</h3>
+        <p className="text-sm text-text-secondary mb-3">每行一个敏感词，将替换为 ***</p>
+        <textarea
+          value={words}
+          onChange={(e) => setWords(e.target.value)}
+          placeholder={"他妈的\n操\n傻逼"}
+          rows={10}
+          className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-border rounded-lg text-text-primary placeholder-text-secondary focus:ring-2 focus:ring-primary focus:outline-none font-mono text-sm resize-y"
+        />
+        <p className="text-xs text-text-secondary mt-2">配置将立即保存</p>
+        <div className="flex justify-end gap-2 mt-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-text-secondary hover:text-text-primary"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={() => onSave(words)}
+            className="px-4 py-2 bg-primary text-white rounded-lg hover:opacity-90"
+          >
+            确定
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function AgentEditPage() {
+  const params = useParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const agentId = Number(params.id);
+  const auth = getAuth();
+  const [agent, setAgent] = useState<Agent | null>(null);
+  const [code, setCode] = useState("");
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [creatorSkills, setCreatorSkills] = useState<CreatorSkill[]>([]);
+  const [selectedPostSkills, setSelectedPostSkills] = useState<
+    { creator_skill_id: number; config?: Record<string, unknown> }[]
+  >([]);
+  const [selectedMidSkills, setSelectedMidSkills] = useState<
+    { creator_skill_id: number; config?: Record<string, unknown> }[]
+  >([]);
+  const [selectedPreSkills, setSelectedPreSkills] = useState<
+    { creator_skill_id: number }[]
+  >([]);
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
+  const [selectedKBId, setSelectedKBId] = useState<number | null>(null);
+  const [testMessages, setTestMessages] = useState<DisplayMessage[]>([]);
+  const [testInput, setTestInput] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [showTestDialog, setShowTestDialog] = useState(false);
+  const [showPostMomentDialog, setShowPostMomentDialog] = useState(false);
+  const [middleTab, setMiddleTab] = useState<"fewshot" | "moments" | "model">("fewshot");
+  const [moments, setMoments] = useState<MomentItem[]>([]);
+  const [loadingMoments, setLoadingMoments] = useState(false);
+  const [llmProviders, setLlmProviders] = useState<LLMProvider[]>([]);
+  const [loadingProviders, setLoadingProviders] = useState(false);
+  const [deletingMomentId, setDeletingMomentId] = useState<number | null>(null);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [expandedCommentsMomentId, setExpandedCommentsMomentId] = useState<number | null>(null);
+  const [momentCommentInputs, setMomentCommentInputs] = useState<Record<number, string>>({});
+  const [sendingCommentMomentId, setSendingCommentMomentId] = useState<number | null>(null);
+  const [autoSchedule, setAutoSchedule] = useState<MomentAutoScheduleResult | null>(null);
+  const [loadingAutoSchedule, setLoadingAutoSchedule] = useState(false);
+  const [generatingSchedule, setGeneratingSchedule] = useState(false);
+  const [postSkillConfigModal, setPostSkillConfigModal] = useState<{
+    creatorSkillId: number;
+    skillName: string;
+    words: string;
+  } | null>(null);
+  const [midSkillConfigModal, setMidSkillConfigModal] = useState<{
+    creatorSkillId: number;
+    skillName: string;
+    rolePrompt: string;
+  } | null>(null);
+  const [midSkillGenericConfigModal, setMidSkillGenericConfigModal] = useState<{
+    creatorSkillId: number;
+    skillName: string;
+    configSchema: { properties?: Record<string, { type?: string; description?: string; default?: unknown; enum?: string[]; enumLabels?: Record<string, string> }>; required?: string[] };
+    initialConfig: Record<string, unknown>;
+  } | null>(null);
+  const [creatorSkillConfigModal, setCreatorSkillConfigModal] = useState<{
+    creatorSkillId: number;
+    skillName: string;
+    configSchema: { properties?: Record<string, { type?: string; description?: string; default?: unknown; enum?: string[]; enumLabels?: Record<string, string> }>; required?: string[] };
+    initialConfig: Record<string, unknown>;
+  } | null>(null);
+  const [creatorSkillConfigSaving, setCreatorSkillConfigSaving] = useState(false);
+  const [twoTabConfigModal, setTwoTabConfigModal] = useState<{
+    creatorSkillId: number;
+    skillName: string;
+    configSchema: { properties?: Record<string, { type?: string; description?: string; default?: unknown; enum?: string[]; enumLabels?: Record<string, string> }>; required?: string[] };
+    globalConfig: Record<string, unknown>;
+    agentConfig: Record<string, unknown>;
+  } | null>(null);
+  const [twoTabGlobalSaving, setTwoTabGlobalSaving] = useState(false);
+  const [tokenCopied, setTokenCopied] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!auth?.apiKey || !agentId) return;
+    loadAgent();
+  }, [auth?.apiKey, agentId]);
+
+  // Load knowledge bases for selector
+  useEffect(() => {
+    if (!auth?.apiKey) return;
+    listKnowledgeBases(auth.apiKey).then((res) => {
+      if (res.success && res.data) setKnowledgeBases(res.data);
+    });
+  }, [auth?.apiKey]);
+
+  // Edge Agent 状态轮询（每 10 秒）
+  useEffect(() => {
+    if (!auth?.apiKey || !agentId || !agent || agent.agent_type !== 'edge') return;
+    const interval = setInterval(async () => {
+      const res = await getAgent(auth.apiKey, agentId);
+      if (res.success && res.data) {
+        setAgent((prev) => prev ? { ...prev, edge_status: res.data!.edge_status } : prev);
+      }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [auth?.apiKey, agentId, agent?.agent_type]);
+
+  // 从 Marketplace 返回时需重新拉取 creator skills
+  useEffect(() => {
+    if (!auth?.apiKey) return;
+    listCreatorSkills(auth.apiKey).then((res) => {
+      if (res.success && res.data?.creator_skills) {
+        setCreatorSkills(res.data.creator_skills);
+      }
+    });
+  }, [auth?.apiKey, pathname]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [testMessages]);
+
+  // 技能选择/参数变更时立即保存到数据库，无需单独点保存
+  const savePreSkillsToDb = async (next: { creator_skill_id: number }[]) => {
+    if (!auth?.apiKey) return;
+    try {
+      await setAgentPreSkills(auth.apiKey, agentId, next.map((p) => ({ creator_skill_id: p.creator_skill_id })));
+    } catch {
+      setError("对话前技能保存失败");
+    }
+  };
+  const saveMidSkillsToDb = async (next: { creator_skill_id: number; config?: Record<string, unknown> }[]) => {
+    if (!auth?.apiKey) return;
+    try {
+      await setAgentMidSkills(
+        auth.apiKey,
+        agentId,
+        next.map((p) => ({ creator_skill_id: p.creator_skill_id, config: p.config }))
+      );
+    } catch {
+      setError("对话中技能保存失败");
+    }
+  };
+  const savePostSkillsToDb = async (next: { creator_skill_id: number; config?: Record<string, unknown> }[]) => {
+    if (!auth?.apiKey) return;
+    try {
+      await setAgentPostSkills(
+        auth.apiKey,
+        agentId,
+        next.map((p) => ({ creator_skill_id: p.creator_skill_id, config: p.config }))
+      );
+    } catch {
+      setError("对话后技能保存失败");
+    }
+  };
+
+  const handleDeleteCreatorSkill = async (csId: number, stage?: string) => {
+    if (!auth?.apiKey) return;
+    if (!confirm("确定要删除这个技能吗？删除后需要重新从 Marketplace 添加。")) return;
+    try {
+      await deleteCreatorSkill(auth.apiKey, csId);
+      setCreatorSkills((prev) => prev.filter((c) => c.id !== csId));
+      if (stage === "pre_conversation") {
+        const next = selectedPreSkills.filter((p) => p.creator_skill_id !== csId);
+        setSelectedPreSkills(next);
+        savePreSkillsToDb(next);
+      } else if (stage === "mid_conversation") {
+        const next = selectedMidSkills.filter((p) => p.creator_skill_id !== csId);
+        setSelectedMidSkills(next);
+        saveMidSkillsToDb(next);
+      } else if (stage === "post_conversation") {
+        const next = selectedPostSkills.filter((p) => p.creator_skill_id !== csId);
+        setSelectedPostSkills(next);
+        savePostSkillsToDb(next);
+      }
+    } catch {
+      setError("技能删除失败");
+    }
+  };
+
+  const loadAgent = async () => {
+    if (!auth?.apiKey) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await getAgent(auth.apiKey, agentId);
+      if (res.success && res.data) {
+        setAgent(res.data);
+        setCode(res.data.code || "");
+        setName(res.data.name || "");
+        setDescription(res.data.description || "");
+        setPrompt(res.data.system_prompt || "");
+        const ex = res.data.config?.examples;
+        if (ex && Array.isArray(ex) && ex.length > 0) {
+          setTestMessages(
+            ex
+              .filter((m: ExampleMessage) => m.role === "user" || m.role === "assistant")
+              .map((m: ExampleMessage, i: number) => ({
+                id: i,
+                role: m.role as "user" | "assistant",
+                content: m.content || "",
+              }))
+          );
+        } else {
+          setTestMessages([]);
+        }
+        setSelectedSkills(res.data.config?.skills ?? []);
+        setSelectedKBId(res.data.knowledge_base_id ?? null);
+        listAgentPostSkills(auth.apiKey, agentId).then((r) => {
+          if (r.success && r.data?.post_skills) {
+            setSelectedPostSkills(
+              r.data.post_skills.map((s: AgentPostSkill) => ({
+                creator_skill_id: s.id,
+                config: s.agent_config || {},
+              }))
+            );
+          }
+        });
+        listAgentPreSkills(auth.apiKey, agentId).then((r) => {
+          if (r.success && r.data?.pre_skills) {
+            setSelectedPreSkills(
+              r.data.pre_skills.map((s: AgentPreSkill) => ({
+                creator_skill_id: s.id,
+              }))
+            );
+          }
+        });
+        listAgentMidSkills(auth.apiKey, agentId).then((r) => {
+          if (r.success && r.data?.mid_skills) {
+            setSelectedMidSkills(
+              r.data.mid_skills.map((s: AgentMidSkill) => ({
+                creator_skill_id: s.id,
+                config: s.agent_config || s.config || {},
+              }))
+            );
+          }
+        });
+      } else {
+        setError(res.error?.message || "加载失败");
+      }
+    } catch {
+      setError("加载失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveWithStatus = async (targetStatus: string) => {
+    if (!auth?.apiKey || !agent) return;
+    setSaving(true);
+    setError("");
+    setSaveSuccess(false);
+    const examples: ExampleMessage[] = testMessages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+    const codeTrimmed = code.trim().toLowerCase();
+    if (codeTrimmed && !/^[a-z0-9_-]{2,64}$/.test(codeTrimmed)) {
+      setError("Code 仅支持小写字母、数字、下划线、横线，2-64 字符");
+      setSaving(false);
+      return;
+    }
+    try {
+      const res = await updateAgent(auth.apiKey, agentId, {
+        code: codeTrimmed || agent.code,
+        name: name.trim() || agent.name,
+        description: description.trim(),
+        system_prompt: prompt,
+        examples,
+        skills: selectedSkills,
+        status: targetStatus,
+        knowledge_base_id: selectedKBId,
+      });
+      if (res.success) {
+        // 技能选择/参数已改为变更时即时保存，此处仅保存 agent 基础信息
+        setSaveSuccess(true);
+        setAgent(res.data || agent);
+        setTimeout(() => setSaveSuccess(false), 2000);
+      } else {
+        setError(res.error?.message || "保存失败");
+      }
+    } catch {
+      setError("保存失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveAsDraft = () => saveWithStatus("draft");
+  const handlePublish = () => saveWithStatus("active");
+  const handleArchive = () => saveWithStatus("archived");
+
+  const sendTestMessage = async (content: string) => {
+    if (!content.trim() || !auth?.apiKey) return;
+    setSending(true);
+    setError("");
+
+    setTestMessages((prev) => [
+      ...prev,
+      { id: Date.now(), role: "user" as const, content },
+    ]);
+
+    const messages = testMessages.map((m) => ({ role: m.role, content: m.content }));
+
+    try {
+      const res = await simulateAgent(
+        auth.apiKey,
+        agentId,
+        content,
+        messages,
+        prompt || undefined,
+        undefined,
+        selectedSkills.length > 0 ? selectedSkills : undefined
+      );
+      if (res.success && res.data) {
+        setTestMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now() + 1,
+            role: "assistant" as const,
+            content: res.data!.content,
+          },
+        ]);
+      } else {
+        setError(res.error?.message || "发送失败");
+      }
+    } catch {
+      setError("发送失败");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleTestSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const content = testInput.trim();
+    if (!content) return;
+    setTestInput("");
+    await sendTestMessage(content);
+  };
+
+  const handleAddManual = (e: React.FormEvent) => {
+    e.preventDefault();
+    const content = testInput.trim();
+    if (!content) return;
+    setTestInput("");
+    const now = Date.now();
+    setTestMessages((prev) => [
+      ...prev,
+      { id: now, role: "user" as const, content },
+      {
+        id: now + 1,
+        role: "assistant" as const,
+        content: "请输入你自定义的内容",
+      },
+    ]);
+  };
+
+  const handleClearTest = () => {
+    setTestMessages([]);
+  };
+
+  const handleDeleteMessage = (msgId: number) => {
+    setTestMessages((prev) => prev.filter((m) => m.id !== msgId));
+    if (editingId === msgId) setEditingId(null);
+  };
+
+  const handleEditContent = (msgId: number, content: string) => {
+    setTestMessages((prev) =>
+      prev.map((m) => (m.id === msgId ? { ...m, content } : m))
+    );
+  };
+
+  const loadMoments = async () => {
+    if (!auth?.apiKey || !agent) return;
+    setLoadingMoments(true);
+    try {
+      const res = await listAgentMoments(auth.apiKey, Number(agent.id), 50, 0);
+      if (res.success && res.data) {
+        setMoments(res.data.moments || []);
+      }
+    } finally {
+      setLoadingMoments(false);
+    }
+  };
+
+  const loadLLMProviders = async () => {
+    if (!auth?.apiKey) return;
+    setLoadingProviders(true);
+    try {
+      const res = await getLLMProviders(auth.apiKey);
+      if (res.success && res.data) {
+        setLlmProviders(res.data);
+      }
+    } finally {
+      setLoadingProviders(false);
+    }
+  };
+
+  const loadAutoSchedule = async () => {
+    if (!auth?.apiKey || !agent) return;
+    setLoadingAutoSchedule(true);
+    try {
+      const res = await getMomentAutoSchedule(auth.apiKey, Number(agent.id));
+      if (res.success && res.data) {
+        setAutoSchedule(res.data);
+      }
+    } finally {
+      setLoadingAutoSchedule(false);
+    }
+  };
+
+  const handleGenerateSchedule = async () => {
+    if (!auth?.apiKey || !agent) return;
+    setGeneratingSchedule(true);
+    try {
+      const res = await generateMomentAutoSchedule(auth.apiKey, Number(agent.id));
+      if (res.success && res.data) {
+        setAutoSchedule(res.data);
+      }
+    } finally {
+      setGeneratingSchedule(false);
+    }
+  };
+
+  const handleDeleteSchedule = async () => {
+    if (!auth?.apiKey || !agent) return;
+    if (!confirm("确定要关闭自动发朋友圈吗？")) return;
+    await deleteMomentAutoSchedule(auth.apiKey, Number(agent.id));
+    setAutoSchedule(null);
+  };
+
+  const handleDeleteMoment = async (momentId: number) => {
+    if (!auth?.apiKey || !agent) return;
+    if (!confirm("确定要删除这条朋友圈吗？")) return;
+    setDeletingMomentId(momentId);
+    try {
+      const res = await deleteMoment(auth.apiKey, Number(agent.id), momentId);
+      if (res.success) {
+        setMoments((prev) => prev.filter((m) => m.id !== momentId));
+      }
+    } finally {
+      setDeletingMomentId(null);
+    }
+  };
+
+  const handleAddMomentComment = async (momentId: number, content: string) => {
+    if (!auth?.apiKey || !agent) return;
+    const text = content.trim();
+    if (!text) return;
+    const contentWithTag = text.startsWith("from Human") ? text : `from Human: ${text}`;
+    setSendingCommentMomentId(momentId);
+    try {
+      const res = await addMomentComment(auth.apiKey, momentId, contentWithTag);
+      if (res.success && res.data) {
+        setMoments((prev) =>
+          prev.map((m) =>
+            m.id === momentId
+              ? {
+                  ...m,
+                  comments: [
+                    ...(m.comments || []),
+                    {
+                      id: res.data!.id,
+                      creator_id: 0,
+                      creator_name: res.data!.creator_name,
+                      content: res.data!.content,
+                      created_at: new Date().toISOString(),
+                    },
+                  ],
+                }
+              : m
+          )
+        );
+        setMomentCommentInputs((prev) => ({ ...prev, [momentId]: "" }));
+      }
+    } finally {
+      setSendingCommentMomentId(null);
+    }
+  };
+
+  if (!auth?.apiKey) return null;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-text-secondary">加载中...</div>
+      </div>
+    );
+  }
+
+  if (error && !agent) {
+    return (
+      <div className="p-6">
+        <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400">
+          {error}
+        </div>
+        <Link href="/dashboard" className="mt-4 inline-block text-primary">
+          返回 Agent 列表
+        </Link>
+      </div>
+    );
+  }
+
+  if (!agent) return null;
+
+  const displayName = name.trim() || agent.name || "Agent";
+  const avatarLetter = displayName.charAt(0).toUpperCase();
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-56px)] bg-background text-text-primary">
+      {/* Header：图标 + 文字，统一圆角与间距 */}
+      <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface shrink-0">
+        <div className="flex items-center gap-3">
+          <AvatarUpload
+            avatar={getAgentAvatar(agent)}
+            fallbackLetter={avatarLetter}
+            agentId={agentId}
+            apiKey={auth.apiKey}
+            onSuccess={(updated) => setAgent(updated)}
+            onError={(msg) => setError(msg)}
+            disabled={saving}
+          />
+          <span className="font-medium text-text-primary">{displayName}</span>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg text-text-secondary hover:text-text-primary hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          >
+            <BackIcon className="w-4 h-4 shrink-0" />
+            <span>返回</span>
+          </button>
+          <span className="w-px h-5 bg-border mx-0.5" aria-hidden />
+          <button
+            type="button"
+            onClick={handleSaveAsDraft}
+            disabled={saving}
+            className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg shadow-sm transition-all disabled:opacity-50 ${
+              saveSuccess
+                ? "bg-amber-500 text-white"
+                : "bg-amber-500 hover:bg-amber-600 text-white"
+            }`}
+          >
+            <SaveIcon className="w-4 h-4 shrink-0" />
+            <span>{saving ? "保存中..." : saveSuccess ? "已保存" : "存为草稿"}</span>
+          </button>
+          <button
+            type="button"
+            onClick={handlePublish}
+            disabled={saving}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm transition-all disabled:opacity-50"
+          >
+            <PublishIcon className="w-4 h-4 shrink-0" />
+            <span>发布</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleArchive}
+            disabled={saving}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-text-primary border border-border transition-colors disabled:opacity-50"
+          >
+            <ArchiveIcon className="w-4 h-4 shrink-0" />
+            <span>存档</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setError("");
+              setShowTestDialog(true);
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-rose-500 hover:bg-rose-600 text-white shadow-sm transition-all"
+          >
+            <TestPlayIcon className="w-4 h-4 shrink-0" />
+            <span>测试</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowPostMomentDialog(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-violet-500 hover:bg-violet-600 text-white shadow-sm transition-all"
+          >
+            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+              <circle cx="9" cy="9" r="2" />
+              <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+            </svg>
+            <span>发朋友圈</span>
+          </button>
+        </div>
+      </header>
+
+      {/* Main content: three panels */}
+      <div className="flex-1 flex min-h-0">
+        {/* Left: Prompt Editor */}
+        <div className="w-1/3 flex flex-col border-r border-border shrink-0 bg-surface">
+          <div className="px-4 py-3 border-b border-border space-y-2">
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-text-secondary w-12 shrink-0">名称</label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="给 Agent 起个名字"
+                className="flex-1 px-2 py-1 text-sm bg-slate-50 dark:bg-slate-900 border border-border rounded text-text-primary placeholder-text-secondary focus:ring-2 focus:ring-primary focus:outline-none"
+                spellCheck={false}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-text-secondary w-12 shrink-0">描述</label>
+              <input
+                type="text"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="简要描述 Agent 的用途"
+                className="flex-1 px-2 py-1 text-sm bg-slate-50 dark:bg-slate-900 border border-border rounded text-text-primary placeholder-text-secondary focus:ring-2 focus:ring-primary focus:outline-none"
+                spellCheck={false}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-text-secondary w-12 shrink-0">Code</label>
+              <input
+                type="text"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="jess"
+                className="flex-1 px-2 py-1 text-sm bg-slate-50 dark:bg-slate-900 border border-border rounded text-text-primary placeholder-text-secondary focus:ring-2 focus:ring-primary focus:outline-none"
+                spellCheck={false}
+              />
+            </div>
+          </div>
+          <div className="px-4 py-2 border-b border-border">
+            <span className="text-sm text-text-secondary">System Prompt</span>
+          </div>
+          {/* Agent 类型选择器 */}
+          <div className="px-4 py-3 border-b border-border">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs text-text-secondary">Agent 类型</span>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!auth?.apiKey || !agent || agent.agent_type === 'cloud') return;
+                  const res = await updateAgent(auth.apiKey, agentId, { agent_type: 'cloud' });
+                  if (res.success && res.data) setAgent(res.data);
+                }}
+                className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  agent.agent_type !== 'edge'
+                    ? 'bg-primary text-white'
+                    : 'bg-slate-200 dark:bg-slate-700 text-text-secondary hover:text-text-primary hover:bg-slate-300 dark:hover:bg-slate-600'
+                }`}
+              >
+                Cloud
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!auth?.apiKey || !agent || agent.agent_type === 'edge') return;
+                  const res = await updateAgent(auth.apiKey, agentId, { agent_type: 'edge' });
+                  if (res.success && res.data) setAgent(res.data);
+                }}
+                className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  agent.agent_type === 'edge'
+                    ? 'bg-primary text-white'
+                    : 'bg-slate-200 dark:bg-slate-700 text-text-secondary hover:text-text-primary hover:bg-slate-300 dark:hover:bg-slate-600'
+                }`}
+              >
+                Edge
+              </button>
+            </div>
+          </div>
+
+          {/* 长期记忆开关 */}
+          <div className="px-4 py-3 border-b border-border">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-sm text-text-primary">长期记忆</span>
+                <p className="text-xs text-text-secondary mt-0.5">
+                  启用后，AI 可在对话中记住用户偏好，跨会话生效
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!auth?.apiKey || !agent) return;
+                  const next = !agent.memory_enabled;
+                  const res = await updateAgent(auth.apiKey, agentId, { memory_enabled: next });
+                  if (res.success && res.data) setAgent(res.data);
+                }}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  agent.memory_enabled ? 'bg-primary' : 'bg-slate-300 dark:bg-slate-600'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    agent.memory_enabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
+          {/* 知识库绑定 */}
+          <div className="px-4 py-3 border-b border-border">
+            <div>
+              <span className="text-sm text-text-primary">知识库 (RAG)</span>
+              <p className="text-xs text-text-secondary mt-0.5">
+                绑定知识库后，AI 会基于知识库内容回答问题
+              </p>
+            </div>
+            <select
+              value={selectedKBId ?? ""}
+              onChange={async (e) => {
+                if (!auth?.apiKey || !agent) return;
+                const val = e.target.value ? Number(e.target.value) : null;
+                setSelectedKBId(val);
+                const res = await updateAgent(auth.apiKey, agentId, {
+                  knowledge_base_id: val,
+                });
+                if (res.success && res.data) setAgent(res.data);
+              }}
+              className="mt-2 w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              <option value="">未绑定</option>
+              {knowledgeBases.map((kb) => (
+                <option key={kb.id} value={kb.id}>
+                  {kb.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Edge 配置区域 */}
+          {agent.agent_type === 'edge' && (
+            <div className="px-4 py-3 border-b border-border space-y-3 bg-primary/5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-text-secondary">Edge Tunnel</span>
+                <span className={`inline-flex items-center gap-1 text-xs ${
+                  agent.edge_status === 'online' ? 'text-green-600 dark:text-green-400' : 'text-text-secondary'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${
+                    agent.edge_status === 'online' ? 'bg-green-500 animate-pulse' : 'bg-text-secondary'
+                  }`} />
+                  {agent.edge_status === 'online' ? 'Online' : 'Offline'}
+                </span>
+              </div>
+              <div>
+                <label className="text-xs text-text-secondary block mb-1">Agent UUID</label>
+                <div className="flex gap-1">
+                  <code className="flex-1 px-2 py-1.5 bg-slate-50 dark:bg-slate-900 border border-border rounded text-xs text-text-primary font-mono truncate">
+                    {agent.uuid}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(agent.uuid || '');
+                    }}
+                    className="px-2 py-1.5 text-xs bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-text-secondary hover:text-text-primary rounded shrink-0 border border-border"
+                  >
+                    复制
+                  </button>
+                </div>
+              </div>
+              {agent.edge_token && (
+                <div>
+                  <label className="text-xs text-text-secondary block mb-1">Edge Token</label>
+                  <div className="flex gap-1">
+                    <code className="flex-1 px-2 py-1.5 bg-slate-50 dark:bg-slate-900 border border-border rounded text-xs text-text-primary font-mono truncate">
+                      {agent.edge_token}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(agent.edge_token || '');
+                        setTokenCopied(true);
+                        setTimeout(() => setTokenCopied(false), 2000);
+                      }}
+                      className="px-2 py-1.5 text-xs bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-text-secondary hover:text-text-primary rounded shrink-0 border border-border"
+                    >
+                      {tokenCopied ? '已复制' : '复制'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!auth?.apiKey || !confirm('重置 Token 后，现有的 Edge Proxy 连接将失效，确定？')) return;
+                        const res = await resetEdgeToken(auth.apiKey, agentId);
+                        if (res.success && res.data) {
+                          setAgent((prev) => prev ? { ...prev, edge_token: res.data!.edge_token } : prev);
+                        }
+                      }}
+                      className="px-2 py-1.5 text-xs bg-slate-100 dark:bg-slate-800 hover:bg-red-500/20 text-text-secondary hover:text-red-600 dark:hover:text-red-400 rounded shrink-0 border border-border"
+                    >
+                      重置
+                    </button>
+                  </div>
+                </div>
+              )}
+              <p className="text-xs text-text-secondary">
+                Edge 模式下对话将转发到本地 Edge Proxy 处理。Mid/Post 技能由本地代理处理。
+              </p>
+            </div>
+          )}
+
+          <div className="flex-1 min-h-0 flex flex-col bg-slate-50 dark:bg-slate-900/50 border-t border-border">
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="输入 Agent 的人设、规则、背景..."
+              className="flex-1 min-h-[120px] w-full p-4 bg-transparent text-text-primary placeholder-text-secondary resize-none focus:outline-none focus:ring-0 text-sm font-mono"
+              spellCheck={false}
+            />
+          </div>
+        </div>
+
+        {/* Middle: Few-shot / Moments */}
+        <div className="w-1/3 flex flex-col border-r border-border bg-slate-50/50 dark:bg-slate-900/30 shrink-0">
+          <div className="border-b border-border flex items-center">
+            <button
+              onClick={() => setMiddleTab("fewshot")}
+              className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                middleTab === "fewshot"
+                  ? "text-primary border-b-2 border-primary"
+                  : "text-text-secondary hover:text-text-primary"
+              }`}
+            >
+              Few-shot 示例
+            </button>
+            <button
+              onClick={() => { setMiddleTab("moments"); loadMoments(); loadAutoSchedule(); }}
+              className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                middleTab === "moments"
+                  ? "text-primary border-b-2 border-primary"
+                  : "text-text-secondary hover:text-text-primary"
+              }`}
+            >
+              朋友圈
+            </button>
+            {agent?.agent_type === "cloud" && (
+              <button
+                onClick={() => { setMiddleTab("model"); loadLLMProviders(); }}
+                className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                  middleTab === "model"
+                    ? "text-primary border-b-2 border-primary"
+                    : "text-text-secondary hover:text-text-primary"
+                }`}
+              >
+                模型配置
+              </button>
+            )}
+            {middleTab === "fewshot" && testMessages.length > 0 && (
+              <button
+                onClick={handleClearTest}
+                className="px-3 text-xs text-text-secondary hover:text-text-primary"
+              >
+                清空
+              </button>
+            )}
+            {middleTab === "moments" && (
+              <button
+                onClick={loadMoments}
+                className="px-3 text-xs text-text-secondary hover:text-text-primary"
+                title="刷新"
+              >
+                刷新
+              </button>
+            )}
+          </div>
+
+          {middleTab === "fewshot" && (
+            <>
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {testMessages.length === 0 ? (
+                  <div className="text-center text-text-secondary py-12 text-sm">
+                    添加示例对话，或点击顶部 Test 与 Agent 测试对话
+                  </div>
+                ) : (
+                  <>
+                  {testMessages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={`flex gap-2 group ${
+                        msg.role === "user" ? "justify-end" : "justify-start"
+                      }`}
+                    >
+                      <div
+                        className={`max-w-[85%] px-4 py-2 rounded-xl flex items-start gap-2 ${
+                          msg.role === "user"
+                            ? "bg-primary text-white"
+                            : "bg-slate-200 dark:bg-slate-700 text-text-primary"
+                        }`}
+                      >
+                        {editingId === msg.id ? (
+                          <textarea
+                            autoFocus
+                            value={msg.content}
+                            onChange={(e) =>
+                              handleEditContent(msg.id, e.target.value)
+                            }
+                            onBlur={() => setEditingId(null)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Escape") {
+                                setEditingId(null);
+                                e.currentTarget.blur();
+                              }
+                              if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                setEditingId(null);
+                                e.currentTarget.blur();
+                              }
+                            }}
+                            rows={Math.max(3, msg.content.split("\n").length + 1)}
+                            style={{ fieldSizing: "content" } as React.CSSProperties}
+                            className="flex-1 min-w-0 w-full text-sm bg-transparent resize-none focus:outline-none focus:ring-0 text-text-primary placeholder-text-secondary"
+                            placeholder="输入内容..."
+                            spellCheck={false}
+                          />
+                        ) : (
+                          <p
+                            onClick={() => setEditingId(msg.id)}
+                            className="text-sm whitespace-pre-wrap flex-1 cursor-text hover:ring-1 hover:ring-border rounded px-1 -mx-1"
+                            title="点击编辑"
+                          >
+                            {msg.content}
+                          </p>
+                        )}
+                        {editingId !== msg.id && (
+                          <button
+                            onClick={() => handleDeleteMessage(msg.id)}
+                            className="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-red-500 text-xs shrink-0"
+                            title="删除"
+                          >
+                            🗑
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {sending && (
+                    <div className="flex justify-start">
+                      <div className="px-4 py-2 rounded-xl bg-slate-200 dark:bg-slate-700 text-text-secondary text-sm flex items-center gap-2">
+                        <span className="inline-block w-2 h-2 rounded-full bg-text-secondary animate-pulse" />
+                        <span className="inline-block w-2 h-2 rounded-full bg-text-secondary animate-pulse [animation-delay:0.2s]" />
+                        <span className="inline-block w-2 h-2 rounded-full bg-text-secondary animate-pulse [animation-delay:0.4s]" />
+                        <span className="ml-1">正在调用大模型...</span>
+                      </div>
+                    </div>
+                  )}
+                  </>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+              {error && (
+                <div className="px-4 py-2 text-red-400 text-sm">{error}</div>
+              )}
+              <form
+                onSubmit={handleTestSend}
+                className="p-4 border-t border-border"
+              >
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={testInput}
+                    onChange={(e) => setTestInput(e.target.value)}
+                    placeholder="输入消息测试..."
+                    disabled={sending}
+                    className="flex-1 px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-border rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddManual}
+                    disabled={sending || !testInput.trim()}
+                    className="px-5 py-2.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 disabled:opacity-50 text-text-primary rounded-lg font-medium"
+                  >
+                    添加
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={sending || !testInput.trim()}
+                    className="px-5 py-2.5 bg-primary hover:opacity-90 disabled:opacity-50 text-white rounded-lg font-medium"
+                  >
+                    {sending ? "发送中..." : "发送"}
+                  </button>
+                </div>
+              </form>
+            </>
+          )}
+
+          {middleTab === "moments" && (
+            <div className="flex-1 overflow-y-auto">
+              {/* Auto-Schedule Panel */}
+              <div className="border-b border-border p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-medium text-text-primary">自动发朋友圈</h3>
+                  <div className="flex items-center gap-2">
+                    {autoSchedule?.config && (
+                      <button
+                        type="button"
+                        onClick={handleDeleteSchedule}
+                        className="px-2.5 py-1 text-xs text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                      >
+                        关闭
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleGenerateSchedule}
+                      disabled={generatingSchedule}
+                      className="px-3 py-1 text-xs font-medium bg-violet-500 hover:bg-violet-600 text-white rounded-md disabled:opacity-50 transition-colors"
+                    >
+                      {generatingSchedule ? "AI 规划中..." : autoSchedule?.config ? "重新规划" : "AI 一键排期"}
+                    </button>
+                  </div>
+                </div>
+
+                {loadingAutoSchedule ? (
+                  <p className="text-xs text-text-secondary">加载排期...</p>
+                ) : autoSchedule?.config ? (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-secondary">
+                      <span>
+                        📅 {autoSchedule.config.weekdays.map(d => ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"][d] || d).join("、")}
+                      </span>
+                      <span>
+                        🕐 {autoSchedule.config.daily_times.join("、")}
+                      </span>
+                    </div>
+                    {autoSchedule.reasoning && (
+                      <p className="text-xs text-text-secondary italic">{autoSchedule.reasoning}</p>
+                    )}
+                    {autoSchedule.schedules.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-text-secondary">
+                          待发 {autoSchedule.schedules.filter(s => s.status === "pending").length} 条
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {autoSchedule.schedules.map((s) => {
+                            const dt = new Date(s.scheduled_at);
+                            const isPast = dt < new Date();
+                            return (
+                              <span
+                                key={s.id}
+                                className={`inline-block px-2 py-0.5 rounded text-xs ${
+                                  s.status === "posted"
+                                    ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                                    : isPast
+                                    ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                                    : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                                }`}
+                              >
+                                {s.status === "posted" ? "✓ " : ""}{dt.toLocaleDateString("zh-CN", { weekday: "short" })} {dt.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-text-secondary">
+                    点击「AI 一键排期」让 AI 根据角色人设自动规划每周发朋友圈时间
+                  </p>
+                )}
+              </div>
+
+              {loadingMoments ? (
+                <div className="text-center text-text-secondary py-12 text-sm">
+                  加载中...
+                </div>
+              ) : moments.length === 0 ? (
+                <div className="text-center text-text-secondary py-12 text-sm">
+                  暂无朋友圈，点击顶部按钮发布
+                </div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {moments.map((m) => (
+                    <div key={m.id} className="p-4 group hover:bg-slate-100/50 dark:hover:bg-slate-800/30 transition-colors">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm text-text-primary whitespace-pre-wrap flex-1 leading-relaxed">
+                          {m.content}
+                        </p>
+                        <button
+                          onClick={() => handleDeleteMoment(m.id)}
+                          disabled={deletingMomentId === m.id}
+                          className="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-red-500 text-xs shrink-0 mt-0.5 disabled:opacity-50 transition-opacity"
+                          title="删除"
+                        >
+                          {deletingMomentId === m.id ? "..." : "🗑"}
+                        </button>
+                      </div>
+                      {m.thumbnail_urls && m.thumbnail_urls.length > 0 && (
+                        <div className={`mt-2 grid gap-1 ${
+                          m.thumbnail_urls.length === 1 ? "grid-cols-1 max-w-[200px]" :
+                          m.thumbnail_urls.length <= 4 ? "grid-cols-2 max-w-[240px]" :
+                          "grid-cols-3 max-w-[300px]"
+                        }`}>
+                          {m.thumbnail_urls.map((url, i) => {
+                            const fullUrl = url.startsWith("http") ? url : `${getBaseUrl()}${url}`;
+                            const fullImg = (m.image_urls[i] ?? url);
+                            const fullImgUrl = fullImg.startsWith("http") ? fullImg : `${getBaseUrl()}${fullImg}`;
+                            return (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => setPreviewImageUrl(fullImgUrl)}
+                              className="block w-full text-left cursor-zoom-in"
+                            >
+                              <img
+                                src={fullUrl}
+                                alt=""
+                                className="w-full aspect-square object-cover rounded"
+                              />
+                            </button>
+                          );})}
+                        </div>
+                      )}
+                      {m.video_urls && m.video_urls.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          {m.video_urls.map((url, i) => (
+                            <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline block truncate">
+                              {url}
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                      <div className="mt-2 flex items-center gap-4 text-xs text-text-secondary">
+                        <span>{new Date(m.created_at).toLocaleString("zh-CN")}</span>
+                        {(m.like_count ?? 0) > 0 && (
+                          <span>❤️ {m.like_count} 赞</span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedCommentsMomentId((prev) =>
+                              prev === m.id ? null : m.id
+                            )
+                          }
+                          className="hover:text-text-primary hover:underline"
+                        >
+                          💬 {m.comments?.length ?? 0} 评论
+                        </button>
+                      </div>
+                      {expandedCommentsMomentId === m.id && (
+                        <div className="mt-2 space-y-2">
+                          {m.comments && m.comments.length > 0 && (
+                            <div className="pl-2 border-l-2 border-border space-y-1">
+                              {m.comments.map((c) => (
+                                <div key={c.id} className="text-xs text-text-secondary">
+                                  <span className="font-medium text-text-primary">
+                                    {c.creator_name}
+                                  </span>
+                                  <span className="ml-1">{c.content}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={momentCommentInputs[m.id] ?? ""}
+                              onChange={(e) =>
+                                setMomentCommentInputs((prev) => ({
+                                  ...prev,
+                                  [m.id]: e.target.value,
+                                }))
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleAddMomentComment(
+                                    m.id,
+                                    momentCommentInputs[m.id] ?? ""
+                                  );
+                                }
+                              }}
+                              placeholder="添加评论..."
+                              disabled={sendingCommentMomentId === m.id}
+                              className="flex-1 px-3 py-1.5 text-sm bg-slate-50 dark:bg-slate-800 border border-border rounded-lg text-text-primary placeholder:text-text-secondary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleAddMomentComment(m.id, momentCommentInputs[m.id] ?? "")
+                              }
+                              disabled={
+                                !(momentCommentInputs[m.id] ?? "").trim() ||
+                                sendingCommentMomentId === m.id
+                              }
+                              className="px-3 py-1.5 text-xs bg-primary text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {sendingCommentMomentId === m.id ? "发送中..." : "发送"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {middleTab === "model" && agent?.agent_type === "cloud" && (
+            <div className="flex-1 overflow-y-auto p-4 space-y-6">
+              {loadingProviders ? (
+                <div className="text-center text-text-secondary py-8 text-sm">
+                  加载模型列表...
+                </div>
+              ) : (
+                <>
+                  {/* 模型选择器 */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-text-primary">LLM 模型</label>
+                    <select
+                      value={agent.llm_provider || ""}
+                      onChange={async (e) => {
+                        const newProvider = e.target.value;
+                        setAgent({ ...agent, llm_provider: newProvider || undefined });
+                        if (auth?.apiKey) {
+                          await updateAgent(auth.apiKey, Number(agent.id), {
+                            llm_provider: newProvider || "",
+                          });
+                        }
+                      }}
+                      className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    >
+                      <option value="">默认（系统设定）</option>
+                      {llmProviders.map((p) => (
+                        <option key={p.name} value={p.name}>
+                          {p.display_name}
+                        </option>
+                      ))}
+                    </select>
+                    {llmProviders.find((p) => p.name === agent.llm_provider)?.description && (
+                      <p className="text-xs text-text-secondary">
+                        {llmProviders.find((p) => p.name === agent.llm_provider)?.description}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Temperature 配置 */}
+                  {(() => {
+                    const selectedProvider = llmProviders.find((p) => p.name === agent.llm_provider);
+                    const skipTemp = selectedProvider?.skip_temperature === true;
+                    
+                    if (skipTemp) {
+                      return (
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium text-text-primary">Temperature</label>
+                          <p className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 rounded-lg">
+                            所选模型不支持自定义 Temperature，将使用模型默认值
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-sm font-medium text-text-primary">Temperature</label>
+                          <label className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={agent.llm_temperature === null || agent.llm_temperature === undefined}
+                              onChange={async (e) => {
+                                const useDefault = e.target.checked;
+                                const newTemp = useDefault ? null : 0.7;
+                                setAgent({ ...agent, llm_temperature: newTemp });
+                                if (auth?.apiKey) {
+                                  await updateAgent(auth.apiKey, Number(agent.id), {
+                                    llm_temperature: newTemp,
+                                  });
+                                }
+                              }}
+                              className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
+                            />
+                            使用默认
+                          </label>
+                        </div>
+                        {agent.llm_temperature !== null && agent.llm_temperature !== undefined && (
+                          <div className="space-y-1">
+                            <input
+                              type="range"
+                              min="0"
+                              max="2"
+                              step="0.1"
+                              value={agent.llm_temperature ?? 0.7}
+                              onChange={(e) => {
+                                const newTemp = parseFloat(e.target.value);
+                                setAgent({ ...agent, llm_temperature: newTemp });
+                              }}
+                              onMouseUp={async (e) => {
+                                const newTemp = parseFloat((e.target as HTMLInputElement).value);
+                                if (auth?.apiKey) {
+                                  await updateAgent(auth.apiKey, Number(agent.id), {
+                                    llm_temperature: newTemp,
+                                  });
+                                }
+                              }}
+                              onTouchEnd={async (e) => {
+                                const newTemp = parseFloat((e.target as HTMLInputElement).value);
+                                if (auth?.apiKey) {
+                                  await updateAgent(auth.apiKey, Number(agent.id), {
+                                    llm_temperature: newTemp,
+                                  });
+                                }
+                              }}
+                              className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer"
+                            />
+                            <div className="flex justify-between text-xs text-text-secondary">
+                              <span>0（确定性）</span>
+                              <span className="font-medium text-primary">{agent.llm_temperature?.toFixed(1)}</span>
+                              <span>2（创造性）</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* 能力提示信息 */}
+                  {agent.llm_provider && (() => {
+                    const selectedProvider = llmProviders.find((p) => p.name === agent.llm_provider);
+                    if (!selectedProvider) return null;
+
+                    const hasToolCalling = selectedProvider.capabilities?.includes("tool_calling");
+                    const hasVision = selectedProvider.capabilities?.includes("vision");
+                    const warnings: string[] = [];
+
+                    if (!hasToolCalling) {
+                      warnings.push("该模型不支持对话中技能调用（Tool Calling）");
+                    }
+                    if (!hasVision) {
+                      warnings.push("该模型不支持文件上传和图片识别");
+                    }
+
+                    if (warnings.length === 0) return null;
+
+                    return (
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-text-primary">能力限制</label>
+                        <div className="space-y-1">
+                          {warnings.map((warning, idx) => (
+                            <div
+                              key={idx}
+                              className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 rounded-lg"
+                            >
+                              <span className="shrink-0">⚠️</span>
+                              <span>{warning}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Right: Skills */}
+        <div className="w-1/3 flex flex-col bg-slate-50/50 dark:bg-slate-900/20 shrink-0">
+          {/* 对话前技能（Widget） */}
+          <div className="border-t border-border">
+            <div className="px-4 py-2 border-b border-border flex items-center justify-between gap-2">
+              <span className="text-sm text-text-secondary">对话前技能（Widget）</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (auth?.apiKey) {
+                      listCreatorSkills(auth.apiKey).then((res) => {
+                        if (res.success && res.data?.creator_skills) {
+                          setCreatorSkills(res.data.creator_skills);
+                        }
+                      });
+                    }
+                  }}
+                  className="text-xs text-text-secondary hover:text-text-primary"
+                  title="刷新列表（从 Marketplace 添加后请点击）"
+                >
+                  刷新
+                </button>
+                <Link
+                  href="/dashboard/skills-marketplace"
+                  className="text-xs text-primary hover:opacity-80"
+                >
+                  去 Marketplace 添加
+                </Link>
+              </div>
+            </div>
+            <div className="p-3 max-h-48 overflow-y-auto">
+              {creatorSkills.filter((cs) => cs.stage === "pre_conversation").length === 0 ? (
+                <div className="text-center text-text-secondary text-sm py-2">
+                  暂无对话前技能，请先在 Marketplace 添加 pre_conversation 类型技能
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {creatorSkills
+                    .filter((cs) => cs.stage === "pre_conversation")
+                    .map((cs) => {
+                      const checked = !!selectedPreSkills.find((p) => p.creator_skill_id === cs.id);
+                      const hasConfig = !!(cs.config_schema?.properties && Object.keys(cs.config_schema.properties).length > 0);
+                      return (
+                        <div
+                          key={cs.id}
+                          className={`rounded-xl border p-2.5 transition-all ${
+                            checked
+                              ? "bg-primary/10 border-primary/40"
+                              : "bg-slate-100 dark:bg-slate-800/50 border-border hover:border-primary/50"
+                          }`}
+                        >
+                          <div
+                            className="flex items-center gap-2 cursor-pointer"
+                            onClick={() => {
+                              const next = checked
+                                ? selectedPreSkills.filter((p) => p.creator_skill_id !== cs.id)
+                                : [...selectedPreSkills, { creator_skill_id: cs.id }];
+                              setSelectedPreSkills(next);
+                              savePreSkillsToDb(next);
+                            }}
+                          >
+                            <SkillIconBadge skillName={cs.skill_name} active={checked} />
+                            <div className="min-w-0 flex-1">
+                            <div className="text-xs text-text-primary font-medium truncate">{cs.name}</div>
+                            <div className="text-[10px] text-text-secondary truncate">{cs.skill_name || `ID: ${cs.id}`}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-end gap-3 mt-2 pt-1.5 border-t border-border">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCreatorSkill(cs.id, cs.stage)}
+                              className="text-[11px] text-red-400/70 hover:text-red-300"
+                            >
+                              删除
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!hasConfig}
+                              onClick={() => {
+                                if (hasConfig) {
+                                  setCreatorSkillConfigModal({
+                                    creatorSkillId: cs.id,
+                                    skillName: cs.name,
+                                    configSchema: cs.config_schema!,
+                                    initialConfig: cs.config || {},
+                                  });
+                                }
+                              }}
+                              className={`text-[11px] ${hasConfig ? "text-primary hover:opacity-80" : "text-text-secondary cursor-not-allowed"}`}
+                            >
+                              配置
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 对话中技能（角色强化等） */}
+          <div className={`border-t border-border ${agent.agent_type === 'edge' ? 'opacity-40 pointer-events-none' : ''}`}>
+            <div className="px-4 py-2 border-b border-border flex items-center justify-between gap-2">
+              <span className="text-sm text-text-secondary">
+                对话中技能（角色强化）
+                {agent.agent_type === 'edge' && <span className="ml-2 text-xs text-amber-400">Edge 模式下由本地代理处理</span>}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (auth?.apiKey) {
+                      listCreatorSkills(auth.apiKey).then((res) => {
+                        if (res.success && res.data?.creator_skills) {
+                          setCreatorSkills(res.data.creator_skills);
+                        }
+                      });
+                    }
+                  }}
+                  className="text-xs text-text-secondary hover:text-text-primary"
+                  title="刷新列表（从 Marketplace 添加后请点击）"
+                >
+                  刷新
+                </button>
+                <Link
+                  href="/dashboard/skills-marketplace"
+                  className="text-xs text-primary hover:opacity-80"
+                >
+                  去 Marketplace 添加
+                </Link>
+              </div>
+            </div>
+            <div className="p-3 max-h-48 overflow-y-auto">
+              {creatorSkills.filter((cs) => cs.stage === "mid_conversation").length === 0 ? (
+                <div className="text-center text-text-secondary text-sm py-2">
+                  暂无对话中技能，请先在 Marketplace 添加 mid_conversation 类型技能
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {creatorSkills
+                    .filter((cs) => cs.stage === "mid_conversation")
+                    .map((cs) => {
+                      const sel = selectedMidSkills.find((p) => p.creator_skill_id === cs.id);
+                      const checked = !!sel;
+                      const hasConfig = !!(cs.config_schema?.properties && Object.keys(cs.config_schema.properties).length > 0);
+                      const canConfig = checked && (cs.skill_name === "role_reinforcement" || hasConfig);
+                      const needsAttention = checked && (
+                        (cs.skill_name === "role_reinforcement" && !String(sel?.config?.role_prompt || "").trim()) ||
+                        (cs.skill_name !== "role_reinforcement" && hasConfig && (cs.config_schema?.required || []).some((k: string) => {
+                          const v = cs.config?.[k];
+                          return v == null || String(v).trim() === "";
+                        }))
+                      );
+                      return (
+                        <div
+                          key={cs.id}
+                          className={`rounded-xl border p-2.5 transition-all ${
+                            checked
+                              ? "bg-primary/10 border-primary/40"
+                              : "bg-slate-100 dark:bg-slate-800/50 border-border hover:border-primary/50"
+                          }`}
+                        >
+                          <div
+                            className="flex items-center gap-2 cursor-pointer"
+                            onClick={() => {
+                              const defaultConfig = cs.skill_name === "role_reinforcement" ? { role_prompt: "" } : {};
+                              const next = checked
+                                ? selectedMidSkills.filter((p) => p.creator_skill_id !== cs.id)
+                                : [...selectedMidSkills, { creator_skill_id: cs.id, config: defaultConfig }];
+                              setSelectedMidSkills(next);
+                              saveMidSkillsToDb(next);
+                            }}
+                          >
+                            <SkillIconBadge skillName={cs.skill_name} active={checked} />
+                            <div className="min-w-0 flex-1">
+                            <div className="text-xs text-text-primary font-medium truncate">{cs.name}</div>
+                            <div className="text-[10px] text-text-secondary truncate">{cs.skill_name || `ID: ${cs.id}`}</div>
+                              {needsAttention && (
+                                <div className="text-[10px] text-amber-400/90 truncate mt-0.5">需要配置</div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-end gap-3 mt-2 pt-1.5 border-t border-border">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCreatorSkill(cs.id, cs.stage)}
+                              className="text-[11px] text-red-400/70 hover:text-red-300"
+                            >
+                              删除
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!canConfig}
+                              onClick={() => {
+                                if (cs.skill_name === "role_reinforcement") {
+                                  setMidSkillConfigModal({
+                                    creatorSkillId: cs.id,
+                                    skillName: cs.name,
+                                    rolePrompt: String(sel?.config?.role_prompt || ""),
+                                  });
+                                } else if (hasConfig) {
+                                  setTwoTabConfigModal({
+                                    creatorSkillId: cs.id,
+                                    skillName: cs.name,
+                                    configSchema: cs.config_schema!,
+                                    globalConfig: cs.config || {},
+                                    agentConfig: sel?.config || {},
+                                  });
+                                }
+                              }}
+                              className={`text-[11px] ${canConfig ? "text-primary hover:opacity-80" : "text-text-secondary cursor-not-allowed"}`}
+                            >
+                              配置
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 对话后技能（数字人） */}
+          <div className={`border-t border-border ${agent.agent_type === 'edge' ? 'opacity-40 pointer-events-none' : ''}`}>
+            <div className="px-4 py-2 border-b border-border flex items-center justify-between gap-2">
+              <span className="text-sm text-text-secondary">
+                对话后技能（数字人）
+                {agent.agent_type === 'edge' && <span className="ml-2 text-xs text-amber-400">Edge 模式下由本地代理处理</span>}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (auth?.apiKey) {
+                      listCreatorSkills(auth.apiKey).then((res) => {
+                        if (res.success && res.data?.creator_skills) {
+                          setCreatorSkills(res.data.creator_skills);
+                        }
+                      });
+                    }
+                  }}
+                  className="text-xs text-text-secondary hover:text-text-primary"
+                  title="刷新列表（从 Marketplace 添加后请点击）"
+                >
+                  刷新
+                </button>
+                <Link
+                  href="/dashboard/skills-marketplace"
+                  className="text-xs text-primary hover:opacity-80"
+                >
+                  去 Marketplace 添加
+                </Link>
+              </div>
+            </div>
+            <div className="p-3 max-h-64 overflow-y-auto">
+              {creatorSkills.filter((cs) => cs.stage === "post_conversation").length === 0 ? (
+                <div className="text-center text-text-secondary text-sm py-4">
+                  暂无对话后技能，请先在 Marketplace 添加 post_conversation 类型技能
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {creatorSkills
+                    .filter((cs) => cs.stage === "post_conversation")
+                    .map((cs) => {
+                      const sel = selectedPostSkills.find((p) => p.creator_skill_id === cs.id);
+                      const checked = !!sel;
+                      const isSensitiveFilter = cs.skill_name === "sensitive_filter";
+                      const hasConfig = !!(cs.config_schema?.properties && Object.keys(cs.config_schema.properties).length > 0);
+                      const canConfig = checked && (isSensitiveFilter || hasConfig);
+                      return (
+                        <div
+                          key={cs.id}
+                          className={`rounded-xl border p-2.5 transition-all ${
+                            checked
+                              ? "bg-primary/10 border-primary/40"
+                              : "bg-slate-100 dark:bg-slate-800/50 border-border hover:border-primary/50"
+                          }`}
+                        >
+                          <div
+                            className="flex items-center gap-2 cursor-pointer"
+                            onClick={() => {
+                              const next = checked
+                                ? selectedPostSkills.filter((p) => p.creator_skill_id !== cs.id)
+                                : [...selectedPostSkills, { creator_skill_id: cs.id, config: {} }];
+                              setSelectedPostSkills(next);
+                              savePostSkillsToDb(next);
+                            }}
+                          >
+                            <SkillIconBadge skillName={cs.skill_name} active={checked} />
+                            <div className="min-w-0 flex-1">
+                            <div className="text-xs text-text-primary font-medium truncate">{cs.name}</div>
+                            <div className="text-[10px] text-text-secondary truncate">{cs.skill_name || `ID: ${cs.id}`}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-end gap-3 mt-2 pt-1.5 border-t border-border">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCreatorSkill(cs.id, cs.stage)}
+                              className="text-[11px] text-red-400/70 hover:text-red-300"
+                            >
+                              删除
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!canConfig}
+                              onClick={() => {
+                                if (isSensitiveFilter) {
+                                  setPostSkillConfigModal({
+                                    creatorSkillId: cs.id,
+                                    skillName: cs.name,
+                                    words: ((sel?.config?.words as string[]) || []).join("\n"),
+                                  });
+                                } else if (hasConfig) {
+                                  setCreatorSkillConfigModal({
+                                    creatorSkillId: cs.id,
+                                    skillName: cs.name,
+                                    configSchema: cs.config_schema!,
+                                    initialConfig: cs.config || {},
+                                  });
+                                }
+                              }}
+                              className={`text-[11px] ${canConfig ? "text-primary hover:opacity-80" : "text-text-secondary cursor-not-allowed"}`}
+                            >
+                              配置
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {showPostMomentDialog && agent && (
+        <PostMomentDialog
+          open={showPostMomentDialog}
+          onClose={() => setShowPostMomentDialog(false)}
+          agentId={agentId}
+          apiKey={auth.apiKey}
+        />
+      )}
+
+      {previewImageUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+          onClick={() => setPreviewImageUrl(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setPreviewImageUrl(null)}
+            className="absolute top-4 right-4 w-10 h-10 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 text-white text-xl"
+            aria-label="关闭"
+          >
+            ×
+          </button>
+          <img
+            src={previewImageUrl}
+            alt=""
+            className="max-w-[90vw] max-h-[90vh] object-contain rounded shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+
+      {showTestDialog && agent && (
+        <AgentTestDialog
+          agent={agent}
+          agentId={agentId}
+          apiKey={auth.apiKey}
+          systemPrompt={prompt}
+          examples={testMessages.map((m) => ({ role: m.role, content: m.content }))}
+          skills={selectedSkills}
+          preSkills={selectedPreSkills.flatMap((p) => {
+            const cs = creatorSkills.find((c) => c.id === p.creator_skill_id);
+            return cs ? [{ id: cs.id, uuid: cs.uuid }] : [];
+          })}
+          midSkills={selectedMidSkills.map((p) => ({
+            creator_skill_id: p.creator_skill_id,
+            config: p.config,
+          }))}
+          postSkills={selectedPostSkills.map((p) => ({
+            creator_skill_id: p.creator_skill_id,
+            config: p.config,
+          }))}
+          onClose={() => setShowTestDialog(false)}
+        />
+      )}
+
+      {/* 角色设定配置弹窗 */}
+      {midSkillConfigModal && (
+        <MidSkillConfigModal
+          skillName={midSkillConfigModal.skillName}
+          initialRolePrompt={midSkillConfigModal.rolePrompt}
+          onSave={(rolePrompt) => {
+            const next = selectedMidSkills.map((p) =>
+              p.creator_skill_id === midSkillConfigModal.creatorSkillId
+                ? { ...p, config: { ...p.config, role_prompt: rolePrompt } }
+                : p
+            );
+            setSelectedMidSkills(next);
+            saveMidSkillsToDb(next);
+            setMidSkillConfigModal(null);
+          }}
+          onClose={() => setMidSkillConfigModal(null)}
+        />
+      )}
+
+      {/* 对话中技能通用配置弹窗（如 weather_api 的 default_city） */}
+      {midSkillGenericConfigModal && (
+        <MidSkillGenericConfigModal
+          skillName={midSkillGenericConfigModal.skillName}
+          configSchema={midSkillGenericConfigModal.configSchema}
+          initialConfig={midSkillGenericConfigModal.initialConfig}
+          onSave={(config) => {
+            const next = selectedMidSkills.map((p) =>
+              p.creator_skill_id === midSkillGenericConfigModal.creatorSkillId
+                ? { ...p, config }
+                : p
+            );
+            setSelectedMidSkills(next);
+            saveMidSkillsToDb(next);
+            setMidSkillGenericConfigModal(null);
+          }}
+          onClose={() => setMidSkillGenericConfigModal(null)}
+        />
+      )}
+
+      {/* 敏感词配置弹窗 */}
+      {postSkillConfigModal && (
+        <PostSkillConfigModal
+          skillName={postSkillConfigModal.skillName}
+          initialWords={postSkillConfigModal.words}
+          onSave={(words) => {
+            const wordList = words
+              .split("\n")
+              .map((s) => s.trim())
+              .filter(Boolean);
+            const next = selectedPostSkills.map((p) =>
+              p.creator_skill_id === postSkillConfigModal.creatorSkillId
+                ? { ...p, config: { ...p.config, words: wordList } }
+                : p
+            );
+            setSelectedPostSkills(next);
+            savePostSkillsToDb(next);
+            setPostSkillConfigModal(null);
+          }}
+          onClose={() => setPostSkillConfigModal(null)}
+        />
+      )}
+
+      {/* 通用技能参数配置弹窗（编辑 creator_skill.config） */}
+      {creatorSkillConfigModal && (
+        <CreatorSkillConfigModal
+          skillName={creatorSkillConfigModal.skillName}
+          configSchema={creatorSkillConfigModal.configSchema}
+          initialConfig={creatorSkillConfigModal.initialConfig}
+          saving={creatorSkillConfigSaving}
+          onSave={async (config) => {
+            if (!auth?.apiKey) return;
+            setCreatorSkillConfigSaving(true);
+            try {
+              const res = await updateCreatorSkill(auth.apiKey, creatorSkillConfigModal.creatorSkillId, { config });
+              if (res.success) {
+                const listRes = await listCreatorSkills(auth.apiKey);
+                if (listRes.success && listRes.data?.creator_skills) {
+                  setCreatorSkills(listRes.data.creator_skills);
+                }
+                setCreatorSkillConfigModal(null);
+              } else {
+                setError(res.error?.message || "保存配置失败");
+              }
+            } catch {
+              setError("保存配置失败");
+            } finally {
+              setCreatorSkillConfigSaving(false);
+            }
+          }}
+          onClose={() => setCreatorSkillConfigModal(null)}
+        />
+      )}
+
+      {/* 两 Tab 配置弹窗（全局 + Agent 配置） */}
+      {twoTabConfigModal && (
+        <TwoTabSkillConfigModal
+          skillName={twoTabConfigModal.skillName}
+          configSchema={twoTabConfigModal.configSchema}
+          globalConfig={twoTabConfigModal.globalConfig}
+          agentConfig={twoTabConfigModal.agentConfig}
+          savingGlobal={twoTabGlobalSaving}
+          onSaveGlobal={async (config) => {
+            if (!auth?.apiKey) return;
+            setTwoTabGlobalSaving(true);
+            try {
+              const res = await updateCreatorSkill(auth.apiKey, twoTabConfigModal.creatorSkillId, { config });
+              if (res.success) {
+                const listRes = await listCreatorSkills(auth.apiKey);
+                if (listRes.success && listRes.data?.creator_skills) {
+                  setCreatorSkills(listRes.data.creator_skills);
+                }
+                setTwoTabConfigModal(null);
+              } else {
+                setError(res.error?.message || "保存全局配置失败");
+              }
+            } catch {
+              setError("保存全局配置失败");
+            } finally {
+              setTwoTabGlobalSaving(false);
+            }
+          }}
+          onSaveAgent={(config) => {
+            const next = selectedMidSkills.map((p) =>
+              p.creator_skill_id === twoTabConfigModal.creatorSkillId
+                ? { ...p, config }
+                : p
+            );
+            setSelectedMidSkills(next);
+            saveMidSkillsToDb(next);
+            setTwoTabConfigModal(null);
+          }}
+          onClose={() => setTwoTabConfigModal(null)}
+        />
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Linkyun AI Chat Hub",
+  "description": "A sophisticated WeChat-inspired platform for interacting with specialized AI digital humans, featuring individual and group chats, a social moments feed, and a rich discovery interface.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

@@ -1,0 +1,69 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 系统字体栈，避免引用 Google Fonts 等被国内封锁的服务 */
+:root {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+/* 默认主题包（与 UI-Ref/2.0/creator-web-ui 一致）— 浅色 */
+:root {
+  --theme-primary: #6366f1;
+  --theme-background: #f8fafc;
+  --theme-surface: #ffffff;
+  --theme-border: #e2e8f0;
+  --theme-text-primary: #0f172a;
+  --theme-text-secondary: #64748b;
+  /* 兼容旧变量名 */
+  --background: var(--theme-background);
+  --foreground: var(--theme-text-primary);
+  --card: var(--theme-surface);
+  --border: var(--theme-border);
+  --accent: var(--theme-primary);
+  --accent-hover: #818cf8;
+}
+
+/* 深色 */
+.dark {
+  --theme-primary: #6366f1;
+  --theme-background: #0f172a;
+  --theme-surface: #1e293b;
+  --theme-border: #27272a;
+  --theme-text-primary: #f1f5f9;
+  --theme-text-secondary: #94a3b8;
+}
+
+body {
+  color: var(--theme-text-primary);
+  background: var(--theme-background);
+}
+
+/* 自定义滚动条 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #52525b #27272a;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #27272a;
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #52525b;
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #71717a;
+}
+
+*::-webkit-scrollbar-corner {
+  background: #27272a;
+}
