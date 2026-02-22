@@ -316,12 +316,13 @@ export async function login(
 export async function register(
   username: string,
   email: string,
-  password: string
+  password: string,
+  invitationCode: string
 ): Promise<ApiResponse<AuthResponse>> {
   const raw = await fetch(`${getBaseUrl()}/api/v1/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, email, password }),
+    body: JSON.stringify({ username, email, password, invitation_code: invitationCode.trim() }),
   });
   const json = await raw.json().catch(() => ({}));
   if (!raw.ok) {

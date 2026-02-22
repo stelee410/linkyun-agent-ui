@@ -23,7 +23,14 @@ const translations = {
       loading: "Loading...",
       registerSuccess: "Registration successful!",
       loginFailed: "Login failed",
-      registerFailed: "Registration failed"
+      registerFailed: "Registration failed",
+      inviteCode: "Invitation Code",
+      inviteCodePlaceholder: "Enter your invitation code",
+      inviteCodeRequired: "Invitation code is required",
+      needInviteCode: "Need an invitation code?",
+      contactUs: "Contact us:",
+      wechat: "WeChat",
+      discord: "Discord"
     },
     nav: {
       chats: "Chats",
@@ -175,7 +182,14 @@ const translations = {
       loading: "处理中...",
       registerSuccess: "注册成功！",
       loginFailed: "登录失败",
-      registerFailed: "注册失败"
+      registerFailed: "注册失败",
+      inviteCode: "邀请码",
+      inviteCodePlaceholder: "请输入您的邀请码",
+      inviteCodeRequired: "请输入邀请码",
+      needInviteCode: "需要邀请码？",
+      contactUs: "联系我们：",
+      wechat: "微信",
+      discord: "Discord"
     },
     nav: {
       chats: "聊天",
