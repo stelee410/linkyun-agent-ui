@@ -23,3 +23,6 @@ Thumbs.db
 
 # Uploads (avatar files)
 /data/
+
+/nginx
+docker-compose.yml
