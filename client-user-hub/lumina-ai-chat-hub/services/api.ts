@@ -8,6 +8,16 @@ import { PLACEHOLDER } from "../lib/placeholder";
 export const getBaseUrl = () =>
   (import.meta.env?.VITE_API_URL as string) || "http://localhost:8080";
 
+/** 获取分钟级时间戳，用于头像缓存破坏 */
+function getMinuteTimestamp(): number {
+  return Math.floor(Date.now() / 60000);
+}
+
+/** 获取秒级时间戳，用于 AI Agent 头像缓存破坏（在 creator 页面需要更快的更新） */
+function getSecondTimestamp(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
 export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
@@ -33,7 +43,7 @@ export interface Creator {
 export function getCreatorAvatar(creator: Creator | null | undefined): string | null {
   const av = creator?.metadata?.avatar;
   if (!av || typeof av !== "string") return null;
-  return `${getBaseUrl()}/api/v1/avatars/${av}`;
+  return `${getBaseUrl()}/api/v1/avatars/${av}?t=${getSecondTimestamp()}`;
 }
 
 /** 获取当前用户资料（后端返回 { success, data: creator }） */
@@ -356,7 +366,7 @@ export interface DiscoverAgent {
 export function getAgentAvatarUrl(agent: DiscoverAgent): string {
   const filename = agent.config?.metadata?.avatar;
   if (filename) {
-    return `${getBaseUrl()}/api/v1/avatars/${filename}`;
+    return `${getBaseUrl()}/api/v1/avatars/${filename}?t=${getMinuteTimestamp()}`;
   }
   return PLACEHOLDER.avatar400;
 }
@@ -466,7 +476,7 @@ export function getAgentAvatarUrlForFilename(
   fallbackCode?: string
 ): string {
   if (filename) {
-    return `${getBaseUrl()}/api/v1/avatars/${filename}`;
+    return `${getBaseUrl()}/api/v1/avatars/${filename}?t=${getMinuteTimestamp()}`;
   }
   return PLACEHOLDER.avatar400;
 }

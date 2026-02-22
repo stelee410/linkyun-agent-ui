@@ -79,13 +79,23 @@ export interface LLMProvider {
   capabilities: string[];
 }
 
+/** 获取分钟级时间戳，用于头像缓存破坏 */
+function getMinuteTimestamp(): number {
+  return Math.floor(Date.now() / 60000);
+}
+
+/** 获取秒级时间戳，用于 AI Agent 头像缓存破坏（在 creator 页面需要更快的更新） */
+function getSecondTimestamp(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
 /** 从 Agent 获取头像：路径则返回完整 URL，base64 则原样返回（兼容旧数据），无则 null */
 export function getAgentAvatar(agent: Agent): string | null {
   const av = agent.config?.metadata?.avatar;
   if (!av || typeof av !== "string") return null;
-  // 路径格式（新）：如 "1.jpg"
+  // 路径格式（新）：如 "1.jpg" - 使用秒级时间戳以便更快看到更新
   if (!av.startsWith("data:")) {
-    return `${getBaseUrl()}/api/v1/avatars/${av}`;
+    return `${getBaseUrl()}/api/v1/avatars/${av}?t=${getSecondTimestamp()}`;
   }
   return av;
 }
@@ -117,7 +127,7 @@ export async function deleteAgentAvatar(apiKey: string, agentId: number) {
 export function getCreatorAvatar(creator: Creator | null | undefined): string | null {
   const av = creator?.metadata?.avatar;
   if (!av || typeof av !== "string") return null;
-  return `${getBaseUrl()}/api/v1/avatars/${av}`;
+  return `${getBaseUrl()}/api/v1/avatars/${av}?t=${getMinuteTimestamp()}`;
 }
 
 export async function uploadCreatorAvatar(apiKey: string, file: Blob) {
