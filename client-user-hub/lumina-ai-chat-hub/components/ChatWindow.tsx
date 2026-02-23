@@ -211,11 +211,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
     ta.style.height = `${h}px`;
   }, [input]);
 
-  const recalculateLayout = useCallback(() => {
+  const recalculateLayout = useCallback((scrollToTop = true) => {
     inputRef.current?.blur();
     const run = () => {
       window.dispatchEvent(new Event('resize'));
-      if (scrollRef.current) {
+      if (scrollToTop && scrollRef.current) {
         scrollRef.current.scrollTop = 0;
       }
     };
@@ -259,7 +259,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
     setPendingDocument(null);
     setShowMentions(false);
     setIsInputExpanded(false);
-    recalculateLayout();
+    recalculateLayout(false); // 发送后不滚动到顶部，由 useEffect 滚动到底部
   };
 
   const handleInputChange = (val: string) => {
