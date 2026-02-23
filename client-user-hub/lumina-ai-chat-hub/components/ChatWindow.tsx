@@ -1,5 +1,5 @@
-
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
@@ -159,7 +159,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
     const ta = inputRef.current;
     if (!ta) return;
     ta.style.height = 'auto';
-    ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
+    const h = Math.max(40, Math.min(ta.scrollHeight, 160));
+    ta.style.height = `${h}px`;
   }, [input]);
 
   const recalculateLayout = useCallback(() => {
@@ -692,56 +693,49 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
         )}
       </div>
 
-      {/* Mobile: backdrop when expanded (tap to collapse) */}
-      {isInputExpanded && (
-        <div
-          className="md:hidden fixed inset-0 z-30 bg-black/40"
-          onClick={handleCloseInput}
-          onKeyDown={(e) => e.key === 'Escape' && handleCloseInput()}
-          aria-hidden="true"
-          role="button"
-          tabIndex={-1}
-        />
-      )}
-
-      <div
-        className={`px-4 pt-0 pb-[max(1rem,env(safe-area-inset-bottom))] bg-transparent shrink-0 relative flex flex-col
-          md:!block
-          max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-40 max-md:p-4 max-md:pt-2 max-md:pb-[max(1rem,env(safe-area-inset-bottom))] max-md:bg-background-dark/95 max-md:backdrop-blur-md max-md:border-t max-md:border-border-dark max-md:rounded-t-2xl max-md:max-h-[75vh] max-md:overflow-y-auto
-          ${isInputExpanded ? 'max-md:flex' : 'max-md:hidden'}`}
-      >
-        {/* Mobile: header with close button when expanded */}
-        <div className="md:hidden flex items-center justify-between mb-2 shrink-0">
-          <span className="text-sm font-medium opacity-60">{t.chat.inputPlaceholder}</span>
-          <button
-            type="button"
-            onClick={handleCloseInput}
-            className="p-2 -mr-2 rounded-full hover:bg-surface-dark/80 transition-colors"
-            aria-label={t.friends.cancel}
-          >
-            <span className="material-symbols-outlined text-xl">close</span>
-          </button>
-        </div>
-        {showEmojiPicker && (
+      {/* Mobile: floating overlay via portal - does not affect page layout */}
+      {isInputExpanded &&
+        createPortal(
           <>
             <div
-              className="fixed inset-0 z-10"
+              className="fixed inset-0 z-[9998] bg-black/40"
+              onClick={handleCloseInput}
+              onKeyDown={(e) => e.key === 'Escape' && handleCloseInput()}
               aria-hidden="true"
-              onClick={() => setShowEmojiPicker(false)}
+              role="button"
+              tabIndex={-1}
             />
-            <div className="absolute bottom-full right-4 mb-2 z-20 animate-in slide-in-from-bottom-2 duration-200 [&_.EmojiPickerReact]:!bg-surface-dark [&_.EmojiPickerReact]:!border-border-dark [&_.EmojiPickerReact]:!rounded-2xl [&_.EmojiPickerReact]:!shadow-2xl">
+            <div
+              className="fixed inset-x-0 bottom-0 z-[9999] flex flex-col p-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] bg-background-dark/95 backdrop-blur-md border-t border-border-dark rounded-t-2xl max-h-[75vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-2 shrink-0">
+                <span className="text-sm font-medium opacity-60">{t.chat.inputPlaceholder}</span>
+                <button
+                  type="button"
+                  onClick={handleCloseInput}
+                  className="p-2 -mr-2 rounded-full hover:bg-surface-dark/80 transition-colors"
+                  aria-label={t.friends.cancel}
+                >
+                  <span className="material-symbols-outlined text-xl">close</span>
+                </button>
+              </div>
+              {showEmojiPicker && (
+                <>
+                  <div className="fixed inset-0 z-[10000]" aria-hidden="true" onClick={() => setShowEmojiPicker(false)} />
+                  <div className="absolute bottom-full right-4 mb-2 z-[10001] animate-in slide-in-from-bottom-2 duration-200 [&_.EmojiPickerReact]:!bg-surface-dark [&_.EmojiPickerReact]:!border-border-dark [&_.EmojiPickerReact]:!rounded-2xl [&_.EmojiPickerReact]:!shadow-2xl">
               <EmojiPicker
                 theme={LIGHT_PRESETS.includes(theme.preset) ? Theme.LIGHT : Theme.DARK}
                 width={320}
                 height={360}
                 onEmojiClick={(data) => insertEmoji(data.emoji)}
-                searchPlaceholder="搜索表情"
-                previewConfig={{ showPreview: false }}
-              />
-            </div>
-          </>
-        )}
-        {showMentions && (
+                    searchPlaceholder="搜索表情"
+                    previewConfig={{ showPreview: false }}
+                  />
+                  </div>
+                </>
+              )}
+              {showMentions && (
           <div className="absolute bottom-full left-4 mb-2 w-48 bg-surface-dark border border-border-dark rounded-xl shadow-2xl overflow-hidden z-20 animate-in slide-in-from-bottom-2 duration-200">
             <p className="p-3 text-[10px] font-bold opacity-50 uppercase tracking-widest border-b border-border-dark bg-background-dark/50">{t.chat.mention}</p>
             <div className="max-h-48 overflow-y-auto custom-scrollbar">
@@ -806,7 +800,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
             {uploadError}
           </div>
         )}
-        <div className={`bg-surface-dark border border-border-dark rounded-2xl p-1.5 lg:p-2 shadow-xl flex items-end gap-1 lg:gap-2 focus-within:ring-2 focus-within:ring-primary/40 transition-all ${(agentType === 'edge' && !agentOnline) || sending ? 'opacity-60 pointer-events-none' : ''}`}>
+        <div className={`bg-surface-dark border border-border-dark rounded-2xl p-1.5 lg:p-2 shadow-xl flex items-center gap-1 lg:gap-2 focus-within:ring-2 focus-within:ring-primary/40 transition-all ${(agentType === 'edge' && !agentOnline) || sending ? 'opacity-60 pointer-events-none' : ''}`}>
           {(supportsImageUpload || supportsDocumentUpload) && (
             <div className="flex gap-0.5 p-0.5">
               {supportsImageUpload && (
@@ -832,7 +826,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
           )}
           <textarea 
             ref={inputRef}
-            className="flex-1 bg-transparent border-none focus:ring-0 py-2.5 lg:py-3 resize-none max-h-32 lg:max-h-40 placeholder:opacity-40 text-sm custom-scrollbar"
+            className="flex-1 min-h-[2.5rem] bg-transparent border-none focus:ring-0 py-2.5 lg:py-3 resize-none max-h-32 lg:max-h-40 placeholder:opacity-40 text-sm custom-scrollbar"
             placeholder={chat.participants.length > 1 ? t.chat.inputPlaceholderGroup : t.chat.inputPlaceholder}
             rows={1}
             value={input}
@@ -862,6 +856,80 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
               >
                 <span className="material-symbols-outlined font-bold text-xl lg:text-2xl">send</span>
               </button>
+          </div>
+        </div>
+            </div>
+          </>,
+          document.body
+        )}
+
+      {/* Desktop: input in normal flow; hidden when mobile overlay is open to avoid duplicate textarea */}
+      <div className={`${isInputExpanded ? 'hidden' : 'hidden md:block'} px-4 pt-0 pb-[max(1rem,env(safe-area-inset-bottom))] bg-transparent shrink-0 relative`}>
+        {showEmojiPicker && (
+          <>
+            <div className="fixed inset-0 z-10" aria-hidden="true" onClick={() => setShowEmojiPicker(false)} />
+            <div className="absolute bottom-full right-4 mb-2 z-20 animate-in slide-in-from-bottom-2 duration-200 [&_.EmojiPickerReact]:!bg-surface-dark [&_.EmojiPickerReact]:!border-border-dark [&_.EmojiPickerReact]:!rounded-2xl [&_.EmojiPickerReact]:!shadow-2xl">
+              <EmojiPicker theme={LIGHT_PRESETS.includes(theme.preset) ? Theme.LIGHT : Theme.DARK} width={320} height={360} onEmojiClick={(data) => insertEmoji(data.emoji)} searchPlaceholder="搜索表情" previewConfig={{ showPreview: false }} />
+            </div>
+          </>
+        )}
+        {showMentions && (
+          <div className="absolute bottom-full left-4 mb-2 w-48 bg-surface-dark border border-border-dark rounded-xl shadow-2xl overflow-hidden z-20 animate-in slide-in-from-bottom-2 duration-200">
+            <p className="p-3 text-[10px] font-bold opacity-50 uppercase tracking-widest border-b border-border-dark bg-background-dark/50">{t.chat.mention}</p>
+            <div className="max-h-48 overflow-y-auto custom-scrollbar">
+              {currentDisplayParticipants.map(p => (
+                <button key={p.id} onClick={() => insertMention(p.name)} className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-primary/10 hover:text-primary transition-all text-xs">
+                  <img src={p.avatar} className="size-6 rounded-lg object-cover" alt="" />
+                  <span className="font-medium truncate">{p.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {sendError && (
+          <div className="mb-2 px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-sm flex items-center justify-between gap-2">
+            <span>{sendError}</span>
+            {onClearSendError && <button onClick={onClearSendError} className="text-xs font-bold underline">{t.chat.retry}</button>}
+          </div>
+        )}
+        {agentType === 'edge' && !agentOnline && (
+          <div className="mb-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-sm flex items-center gap-2">
+            <span className="material-symbols-outlined text-lg">cloud_off</span>
+            {t.chat.agentOffline}
+          </div>
+        )}
+        {(pendingImage || pendingDocument) && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 p-2 rounded-xl bg-background-dark/50 border border-border-dark">
+            {pendingImage && (
+              <div className="flex items-center gap-2 p-2 rounded-lg bg-surface-dark border border-border-dark">
+                {pendingImage.url ? <img src={pendingImage.url} alt="预览" className="w-12 h-12 object-cover rounded" /> : <span className="material-symbols-outlined text-2xl opacity-50">image</span>}
+                <span className="text-xs truncate max-w-24">{pendingImage.name || '图片'}</span>
+                <button type="button" onClick={() => { if (pendingImage.url) URL.revokeObjectURL(pendingImage.url); setPendingImage(null); }} className="text-slate-400 hover:text-red-400"><span className="material-symbols-outlined text-lg">close</span></button>
+              </div>
+            )}
+            {pendingDocument && (
+              <div className="flex items-center gap-2 p-2 rounded-lg bg-surface-dark border border-border-dark">
+                <span className="material-symbols-outlined text-2xl opacity-50">description</span>
+                <span className="text-xs truncate max-w-32">{pendingDocument.name || '文档'}</span>
+                <button type="button" onClick={() => setPendingDocument(null)} className="text-slate-400 hover:text-red-400"><span className="material-symbols-outlined text-lg">close</span></button>
+              </div>
+            )}
+          </div>
+        )}
+        {uploadError && (
+          <div className="mb-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-sm">{uploadError}</div>
+        )}
+        <div className={`bg-surface-dark border border-border-dark rounded-2xl p-1.5 lg:p-2 shadow-xl flex items-center gap-1 lg:gap-2 focus-within:ring-2 focus-within:ring-primary/40 transition-all ${(agentType === 'edge' && !agentOnline) || sending ? 'opacity-60 pointer-events-none' : ''}`}>
+          {(supportsImageUpload || supportsDocumentUpload) && (
+            <div className="flex gap-0.5 p-0.5">
+              {supportsImageUpload && <ImageUploadButton apiKey={apiKey} attachment={pendingImage} onUploaded={(a) => { setUploadError(null); setPendingImage(a); }} onError={setUploadError} disabled={sending} />}
+              {supportsDocumentUpload && <DocumentUploadButton apiKey={apiKey} attachment={pendingDocument} onUploaded={(a) => { setUploadError(null); setPendingDocument(a); }} onClear={() => setPendingDocument(null)} onError={setUploadError} disabled={sending} />}
+            </div>
+          )}
+          <textarea ref={inputRef} className="flex-1 min-h-[2.5rem] bg-transparent border-none focus:ring-0 py-2.5 lg:py-3 resize-none max-h-32 lg:max-h-40 placeholder:opacity-40 text-sm custom-scrollbar" placeholder={chat.participants.length > 1 ? t.chat.inputPlaceholderGroup : t.chat.inputPlaceholder} rows={1} value={input} onChange={(e) => handleInputChange(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }} />
+          <div className="flex gap-0.5 p-0.5">
+            <button type="button" onClick={() => setShowEmojiPicker((v) => !v)} className={`p-2 transition-colors ${showEmojiPicker ? 'text-primary opacity-100' : 'opacity-50 hover:text-primary hover:opacity-100'}`} title="表情" aria-label="选择表情"><span className="material-symbols-outlined text-xl">mood</span></button>
+            <button onClick={handleSend} disabled={sending || (!input.trim() && !pendingImage && !pendingDocument)} className="bg-primary text-white p-2 rounded-xl flex items-center justify-center shadow-lg shadow-primary/20 hover:opacity-90 active:scale-95 transition-all shrink-0 disabled:opacity-50 disabled:cursor-not-allowed" title="发送"><span className="material-symbols-outlined font-bold text-xl lg:text-2xl">send</span></button>
           </div>
         </div>
       </div>
