@@ -640,7 +640,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
         )}
       </div>
 
-      <div className="p-4 pt-0 bg-transparent shrink-0 relative">
+      <div className="px-4 pt-0 pb-[max(1rem,env(safe-area-inset-bottom))] bg-transparent shrink-0 relative">
         {showEmojiPicker && (
           <>
             <div

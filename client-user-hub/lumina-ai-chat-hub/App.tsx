@@ -754,7 +754,7 @@ const AppContent: React.FC = () => {
   if (!currentUser) return null;
 
   return (
-    <div className="flex h-screen w-full bg-background-dark text-slate-100 overflow-hidden font-sans">
+    <div className="flex h-screen h-dvh w-full bg-background-dark text-slate-100 overflow-hidden font-sans">
       <Sidebar 
         chats={sidebarChats} 
         activeChatId={activeChatId} 
