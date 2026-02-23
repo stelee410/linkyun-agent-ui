@@ -95,6 +95,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [typingPhrase, setTypingPhrase] = useState('');
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [isInputExpanded, setIsInputExpanded] = useState(false);
 
   useEffect(() => {
     if (sending) {
@@ -148,6 +149,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
     }
   }, [isManageOpen, chat.participants, chat.title]);
 
+  useEffect(() => {
+    if (isInputExpanded && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isInputExpanded]);
+
   const handleSend = () => {
     const hasContent = input.trim() || pendingImage || pendingDocument;
     if (!hasContent) return;
@@ -176,6 +183,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
     setPendingImage(null);
     setPendingDocument(null);
     setShowMentions(false);
+    setIsInputExpanded(false);
   };
 
   const handleInputChange = (val: string) => {
@@ -565,7 +573,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
 
       <div 
         ref={scrollRef}
-        className="flex-1 overflow-y-auto p-4 lg:p-6 flex flex-col gap-4 lg:gap-6 custom-scrollbar"
+        className={`flex-1 overflow-y-auto p-4 lg:p-6 flex flex-col gap-4 lg:gap-6 custom-scrollbar ${!isInputExpanded ? 'max-md:pb-20' : ''}`}
       >
         {chat.messages.map((msg, idx) => (
           <div key={msg.id} className={`flex gap-3 max-w-[90%] lg:max-w-[85%] ${msg.isAI ? '' : 'self-end flex-row-reverse'}`}>
@@ -640,7 +648,41 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
         )}
       </div>
 
-      <div className="px-4 pt-0 pb-[max(1rem,env(safe-area-inset-bottom))] bg-transparent shrink-0 relative">
+      {/* Mobile: floating bubble when collapsed */}
+      <div
+        className="md:hidden fixed right-4 z-50"
+        style={{ bottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+      >
+        {!isInputExpanded && (
+          <button
+            type="button"
+            onClick={() => setIsInputExpanded(true)}
+            className="size-14 rounded-full bg-primary text-white shadow-xl shadow-primary/30 flex items-center justify-center hover:opacity-90 active:scale-95 transition-all"
+            aria-label={t.chat.inputPlaceholder}
+          >
+            <span className="material-symbols-outlined text-2xl">chat</span>
+          </button>
+        )}
+      </div>
+
+      {/* Mobile: backdrop when expanded (tap to collapse) */}
+      {isInputExpanded && (
+        <div
+          className="md:hidden fixed inset-0 z-30 bg-black/40"
+          onClick={() => setIsInputExpanded(false)}
+          onKeyDown={(e) => e.key === 'Escape' && setIsInputExpanded(false)}
+          aria-hidden="true"
+          role="button"
+          tabIndex={-1}
+        />
+      )}
+
+      <div
+        className={`px-4 pt-0 pb-[max(1rem,env(safe-area-inset-bottom))] bg-transparent shrink-0 relative flex flex-col
+          md:!block
+          max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-40 max-md:p-4 max-md:bg-background-dark/95 max-md:backdrop-blur-md max-md:border-t max-md:border-border-dark max-md:rounded-t-2xl
+          ${isInputExpanded ? 'max-md:flex' : 'max-md:hidden'}`}
+      >
         {showEmojiPicker && (
           <>
             <div
