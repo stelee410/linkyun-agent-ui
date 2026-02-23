@@ -399,6 +399,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
                   />
                 </div>
               </div>
+              {chat.isGroup && (
               <div>
                 <p className="px-2 text-[10px] font-bold opacity-50 uppercase tracking-widest mb-3">{t.chat.inChat}</p>
                 <div className="flex flex-col gap-2">
@@ -449,6 +450,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
                   })}
                 </div>
               </div>
+              )}
               {onDeleteMemory != null && (
                 <div className="p-3 rounded-2xl bg-background-dark/50 border border-amber-500/30">
                   {!showDeleteMemoryConfirm ? (
@@ -826,7 +828,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
           )}
           <textarea 
             ref={inputRef}
-            className="flex-1 min-h-[2.5rem] bg-transparent border-none focus:ring-0 py-2.5 lg:py-3 resize-none max-h-32 lg:max-h-40 placeholder:opacity-40 text-sm custom-scrollbar"
+            className="flex-1 min-h-[2.5rem] leading-[2.5rem] lg:leading-normal bg-transparent border-none focus:ring-0 py-0 lg:py-2.5 lg:py-3 resize-none max-h-32 lg:max-h-40 placeholder:opacity-40 text-sm custom-scrollbar"
             placeholder={chat.participants.length > 1 ? t.chat.inputPlaceholderGroup : t.chat.inputPlaceholder}
             rows={1}
             value={input}

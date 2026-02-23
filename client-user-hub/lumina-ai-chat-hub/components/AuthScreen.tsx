@@ -88,7 +88,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
   };
 
   return (
-    <div className="min-h-screen min-h-svh h-screen h-svh w-full flex bg-background-dark relative text-theme-text overflow-hidden">
+    <div className="w-full flex bg-background-dark relative text-theme-text overflow-hidden" style={{ height: 'var(--vh, 100dvh)', minHeight: 'var(--vh, 100dvh)' }}>
       {/* Global Language & Theme Switchers */}
       <div className="absolute top-6 right-6 z-50 flex gap-3">
         <div className="relative">
