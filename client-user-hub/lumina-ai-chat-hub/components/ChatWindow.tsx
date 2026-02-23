@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
@@ -155,6 +155,32 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
     }
   }, [isInputExpanded]);
 
+  useEffect(() => {
+    const ta = inputRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
+  }, [input]);
+
+  const recalculateLayout = useCallback(() => {
+    inputRef.current?.blur();
+    const run = () => {
+      window.dispatchEvent(new Event('resize'));
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = 0;
+      }
+    };
+    requestAnimationFrame(() => {
+      requestAnimationFrame(run);
+      setTimeout(run, 100);
+    });
+  }, []);
+
+  const handleCloseInput = useCallback(() => {
+    setIsInputExpanded(false);
+    recalculateLayout();
+  }, [recalculateLayout]);
+
   const handleSend = () => {
     const hasContent = input.trim() || pendingImage || pendingDocument;
     if (!hasContent) return;
@@ -184,6 +210,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
     setPendingDocument(null);
     setShowMentions(false);
     setIsInputExpanded(false);
+    recalculateLayout();
   };
 
   const handleInputChange = (val: string) => {
@@ -669,8 +696,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
       {isInputExpanded && (
         <div
           className="md:hidden fixed inset-0 z-30 bg-black/40"
-          onClick={() => setIsInputExpanded(false)}
-          onKeyDown={(e) => e.key === 'Escape' && setIsInputExpanded(false)}
+          onClick={handleCloseInput}
+          onKeyDown={(e) => e.key === 'Escape' && handleCloseInput()}
           aria-hidden="true"
           role="button"
           tabIndex={-1}
@@ -680,9 +707,21 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
       <div
         className={`px-4 pt-0 pb-[max(1rem,env(safe-area-inset-bottom))] bg-transparent shrink-0 relative flex flex-col
           md:!block
-          max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-40 max-md:p-4 max-md:bg-background-dark/95 max-md:backdrop-blur-md max-md:border-t max-md:border-border-dark max-md:rounded-t-2xl
+          max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-40 max-md:p-4 max-md:pt-2 max-md:pb-[max(1rem,env(safe-area-inset-bottom))] max-md:bg-background-dark/95 max-md:backdrop-blur-md max-md:border-t max-md:border-border-dark max-md:rounded-t-2xl max-md:max-h-[75vh] max-md:overflow-y-auto
           ${isInputExpanded ? 'max-md:flex' : 'max-md:hidden'}`}
       >
+        {/* Mobile: header with close button when expanded */}
+        <div className="md:hidden flex items-center justify-between mb-2 shrink-0">
+          <span className="text-sm font-medium opacity-60">{t.chat.inputPlaceholder}</span>
+          <button
+            type="button"
+            onClick={handleCloseInput}
+            className="p-2 -mr-2 rounded-full hover:bg-surface-dark/80 transition-colors"
+            aria-label={t.friends.cancel}
+          >
+            <span className="material-symbols-outlined text-xl">close</span>
+          </button>
+        </div>
         {showEmojiPicker && (
           <>
             <div
