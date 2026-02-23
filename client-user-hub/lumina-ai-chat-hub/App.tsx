@@ -45,6 +45,7 @@ import {
 import type { APIMoment } from './services/api';
 import type { ChatMessage as APIChatMessage } from './services/api';
 import { PLACEHOLDER } from './lib/placeholder';
+import { isChromeMobile } from './lib/chromeMobile';
 
 function creatorToUserProfile(creator: Creator | null | undefined): UserProfile | null {
   if (!creator || creator.id == null) return null;
@@ -753,8 +754,14 @@ const AppContent: React.FC = () => {
   if (view === 'auth') return <AuthScreen onLogin={handleLogin} />;
   if (!currentUser) return null;
 
+  const chromeMobile = isChromeMobile();
+
   return (
-    <div className="flex w-full bg-background-dark text-slate-100 overflow-hidden font-sans" style={{ height: 'var(--vh, 100dvh)', minHeight: 'var(--vh, 100dvh)' }}>
+    <div
+      className={`flex w-full bg-background-dark text-slate-100 font-sans ${chromeMobile ? 'flex-col overflow-y-auto' : 'overflow-hidden'}`}
+      style={{ height: 'var(--vh, 100dvh)', minHeight: 'var(--vh, 100dvh)' }}
+    >
+      <div className={`flex flex-1 min-h-0 ${chromeMobile ? 'min-h-[var(--vh,100dvh)]' : ''}`}>
       <Sidebar 
         chats={sidebarChats} 
         activeChatId={activeChatId} 
@@ -1111,6 +1118,8 @@ const AppContent: React.FC = () => {
           />
         )}
       </main>
+      </div>
+      {chromeMobile && <div className="shrink-0 w-full bg-transparent" style={{ height: '80px' }} aria-hidden />}
     </div>
   );
 };
