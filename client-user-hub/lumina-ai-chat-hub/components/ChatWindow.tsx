@@ -132,12 +132,59 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
         } as AIDigitalHuman;
       });
 
-  // 仅在首次进入聊天时滚动到底部，其他时间不自动滚动
+  const prevMessagesRef = useRef<{ id: string; text: string; isAI: boolean }[]>([]);
+  const prevChatIdRef = useRef<string | null>(null);
+
+  // 滚动到底部：首次进入、用户发送、服务器返回非空内容；服务器返回空内容时不滚动
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    const msgs = chat.messages;
+    const prev = prevMessagesRef.current;
+    const chatIdChanged = prevChatIdRef.current !== chat.id;
+
+    if (chatIdChanged) {
+      prevChatIdRef.current = chat.id;
+      prevMessagesRef.current = msgs.map((m) => ({ id: m.id, text: m.text ?? '', isAI: m.isAI }));
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+      return;
     }
-  }, [chat.id]);
+
+    if (msgs.length === 0) {
+      prevMessagesRef.current = [];
+      return;
+    }
+
+    const lastMsg = msgs[msgs.length - 1];
+    const lastText = (lastMsg?.text ?? '').trim();
+    const isUserMsg = !lastMsg?.isAI;
+    const isAIMsgWithContent = lastMsg?.isAI && lastText !== '';
+
+    // 场景1：新增消息（用户发送 或 服务器返回）
+    if (msgs.length > prev.length) {
+      if (isUserMsg || isAIMsgWithContent) {
+        requestAnimationFrame(() => {
+          if (scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+          }
+        });
+      }
+    } else if (msgs.length === prev.length && prev.length > 0) {
+      // 场景2：同一条 AI 消息内容从空变为非空（流式/分步更新）
+      const prevLast = prev[prev.length - 1];
+      const prevLastText = (prevLast?.text ?? '').trim();
+      const lastMsgContentUpdated = lastMsg?.isAI && lastText !== '' && prevLastText === '';
+      if (lastMsgContentUpdated) {
+        requestAnimationFrame(() => {
+          if (scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+          }
+        });
+      }
+    }
+
+    prevMessagesRef.current = msgs.map((m) => ({ id: m.id, text: m.text ?? '', isAI: m.isAI }));
+  }, [chat.id, chat.messages]);
 
   useEffect(() => {
     if (isManageOpen) {
