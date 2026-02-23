@@ -132,11 +132,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
         } as AIDigitalHuman;
       });
 
+  // 仅在首次进入聊天时滚动到底部，其他时间不自动滚动
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [chat.messages, sending]);
+  }, [chat.id]);
 
   useEffect(() => {
     if (isManageOpen) {
