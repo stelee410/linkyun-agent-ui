@@ -412,10 +412,16 @@ async function request<T>(
   if (!res.ok) {
     return {
       success: false,
-      error: json.error || { message: `HTTP ${res.status}` },
+      error: {
+        ...(json.error || {}),
+        message: json.error?.message ?? `HTTP ${res.status}`,
+      },
     };
   }
-  return json;
+  return {
+    success: json.success ?? true,
+    data: json.data,
+  } as ApiResponse<T>;
 }
 
 // ============ Workspace ============
