@@ -98,6 +98,8 @@ h1, h2, h3, h4, h5, h6, p, span, input, textarea, button {
 }
 
 .theme-wechat .message-bubble-user { color: #000000; }
+.theme-wechat .friends-page-title { color: #191919 !important; }
+:is(.theme-wechat, .theme-facebook, .theme-lumina-light) .page-back-btn { color: #191919 !important; }
 .theme-gameboy .message-bubble-user { color: #0f380f; }
 
 .rounded-3xl { border-radius: var(--border-radius); }

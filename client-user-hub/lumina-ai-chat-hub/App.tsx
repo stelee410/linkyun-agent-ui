@@ -791,20 +791,20 @@ const AppContent: React.FC = () => {
               setMomentsFilterAgentName(agentName ?? null);
               navigateToView('moments');
             }}
-            onBack={() => setShowSidebarOnMobile(true)}
+            onBack={() => navigateToView('messages')}
           />
         )}
 
         {view === 'contacts' && (
           <div className="flex-1 p-6 lg:p-10 overflow-y-auto custom-scrollbar">
-            <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-8 sticky top-0 bg-background-dark/95 backdrop-blur-md z-10 py-4 -mt-4">
-              <div className="flex items-center gap-3">
-                 <button onClick={() => setShowSidebarOnMobile(true)} className="lg:hidden p-2 -ml-2 hover:bg-surface-dark rounded-full transition-colors">
+            <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-8 sticky top-0 bg-background-dark/95 backdrop-blur-md z-10 py-6 -mt-6 lg:py-10 lg:-mt-10">
+              <div className="flex items-center gap-3 min-h-14 lg:min-h-0">
+                 <button onClick={() => navigateToView('messages')} className="lg:hidden p-2 -ml-2 hover:bg-surface-dark rounded-full transition-colors page-back-btn">
                     <span className="material-symbols-outlined">arrow_back</span>
                  </button>
-                 <div>
-                    <h2 className="text-2xl lg:text-4xl font-extrabold text-white">{t.friends.title}</h2>
-                    <p className="text-secondary mt-1 text-sm lg:text-base">
+                 <div className="flex flex-col gap-1 lg:gap-2">
+                    <h2 className="text-2xl lg:text-4xl font-extrabold tracking-tight text-white friends-page-title">{t.friends.title}</h2>
+                    <p className="text-secondary font-medium text-xs lg:text-base">
                       {isSelectingForTopic ? t.friends.topicSubtitle : t.friends.subtitle}
                     </p>
                  </div>
@@ -1091,9 +1091,8 @@ const AppContent: React.FC = () => {
               if (momentsFilter) {
                 setMomentsFilter(null);
                 setMomentsFilterAgentName(null);
-                navigateToView('discovery');
               }
-              setShowSidebarOnMobile(true);
+              navigateToView('messages');
             }}
             onRefresh={async () => {
               const auth = getAuth();

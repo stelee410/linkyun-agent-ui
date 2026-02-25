@@ -786,16 +786,16 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
                 </>
               )}
               {showMentions && (
-          <div className="absolute bottom-full left-4 mb-2 w-48 bg-surface-dark border border-border-dark rounded-xl shadow-2xl overflow-hidden z-20 animate-in slide-in-from-bottom-2 duration-200">
+          <div className="mb-2 shrink-0 w-full max-w-[12rem] bg-surface-dark border border-border-dark rounded-xl shadow-xl overflow-hidden animate-in slide-in-from-bottom-2 duration-200">
             <p className="p-3 text-[10px] font-bold opacity-50 uppercase tracking-widest border-b border-border-dark bg-background-dark/50">{t.chat.mention}</p>
-            <div className="max-h-48 overflow-y-auto custom-scrollbar">
+            <div className="max-h-40 overflow-y-auto custom-scrollbar">
               {currentDisplayParticipants.map(p => (
-                <button 
+                <button
                   key={p.id}
                   onClick={() => insertMention(p.name)}
                   className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-primary/10 hover:text-primary transition-all text-xs"
                 >
-                  <img src={p.avatar} className="size-6 rounded-lg object-cover" alt="" />
+                  <img src={p.avatar} className="size-6 rounded-lg object-cover shrink-0" alt="" />
                   <span className="font-medium truncate">{p.name}</span>
                 </button>
               ))}

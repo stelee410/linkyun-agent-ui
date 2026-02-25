@@ -2,27 +2,29 @@
 
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
+import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { getWorkspaceInviteCode, refreshWorkspaceInviteCode } from "@/lib/api";
 
 interface WorkspaceInviteModalProps {
   open: boolean;
   onClose: () => void;
   apiKey: string;
-  workspaceCode: string;
 }
 
-export function WorkspaceInviteModal({ open, onClose, apiKey, workspaceCode }: WorkspaceInviteModalProps) {
+export function WorkspaceInviteModal({ open, onClose, apiKey }: WorkspaceInviteModalProps) {
+  const { workspaceCode } = useWorkspace();
   const [inviteCode, setInviteCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
 
+  const currentCode = workspaceCode || "default";
   const loadInviteCode = async () => {
-    if (!apiKey || !workspaceCode) return;
+    if (!apiKey) return;
     setLoading(true);
     setError("");
-    const res = await getWorkspaceInviteCode(apiKey, workspaceCode);
+    const res = await getWorkspaceInviteCode(apiKey, currentCode);
     setLoading(false);
     if (res.success && res.data?.invite_code) {
       setInviteCode(res.data.invite_code);
@@ -32,7 +34,7 @@ export function WorkspaceInviteModal({ open, onClose, apiKey, workspaceCode }: W
   };
 
   useEffect(() => {
-    if (open && apiKey && workspaceCode) {
+    if (open && apiKey) {
       loadInviteCode();
     } else if (open) {
       setInviteCode("");
@@ -41,7 +43,7 @@ export function WorkspaceInviteModal({ open, onClose, apiKey, workspaceCode }: W
       setInviteCode("");
       setError("");
     }
-  }, [open, apiKey, workspaceCode]);
+  }, [open, apiKey, currentCode]);
 
   const handleCopy = async () => {
     if (!inviteCode) return;
@@ -55,10 +57,10 @@ export function WorkspaceInviteModal({ open, onClose, apiKey, workspaceCode }: W
   };
 
   const handleRefresh = async () => {
-    if (!apiKey || !workspaceCode) return;
+    if (!apiKey) return;
     setRefreshing(true);
     setError("");
-    const res = await refreshWorkspaceInviteCode(apiKey, workspaceCode);
+    const res = await refreshWorkspaceInviteCode(apiKey, currentCode);
     setRefreshing(false);
     if (res.success && res.data?.invite_code) {
       setInviteCode(res.data.invite_code);

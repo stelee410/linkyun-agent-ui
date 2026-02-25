@@ -590,6 +590,7 @@ export async function updateAgent(
     knowledge_base_id?: number | null;
     llm_provider?: string;
     llm_temperature?: number | null;
+    workspace_id?: number;
   }
 ) {
   const body: Record<string, unknown> = {};
@@ -607,6 +608,7 @@ export async function updateAgent(
   if (data.knowledge_base_id !== undefined) body.knowledge_base_id = data.knowledge_base_id;
   if (data.llm_provider !== undefined) body.llm_provider = data.llm_provider;
   if (data.llm_temperature !== undefined) body.llm_temperature = data.llm_temperature;
+  if (data.workspace_id !== undefined) body.workspace_id = data.workspace_id;
   return request<Agent>(`/agents/${id}`, {
     method: "PUT",
     apiKey,

@@ -50,16 +50,16 @@ const MomentsFeed: React.FC<MomentsFeedProps> = ({ moments, onAddMoment, onLike,
   return (
     <div className="flex-1 flex flex-col h-full bg-background-dark overflow-y-auto custom-scrollbar p-4 lg:p-10 text-theme-text">
       <div className="max-w-6xl mx-auto w-full flex flex-col gap-6 lg:gap-10">
-        <header className="mb-2 lg:mb-4 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-4 min-w-0">
+        <header className="mb-2 lg:mb-4 flex items-center justify-between gap-4 min-h-14 lg:min-h-0">
+          <div className="flex items-center gap-4 min-w-0 flex-1">
             {onBack && (
-              <button onClick={onBack} className={`p-2 -ml-2 hover:bg-surface-dark rounded-full transition-colors shrink-0 ${showBackOnDesktop ? '' : 'lg:hidden'}`}>
+              <button onClick={onBack} className={`p-2 -ml-2 hover:bg-surface-dark rounded-full transition-colors shrink-0 page-back-btn ${showBackOnDesktop ? '' : 'lg:hidden'}`}>
                 <span className="material-symbols-outlined">arrow_back</span>
               </button>
             )}
             <div className="min-w-0">
               <h2 className="text-2xl lg:text-4xl font-extrabold tracking-tight mb-1 lg:mb-2 truncate">{title || t.moments.title}</h2>
-              <p className="text-secondary italic font-medium text-xs lg:text-base">{t.moments.subtitle}</p>
+              <p className="text-secondary font-medium text-xs lg:text-base">{t.moments.subtitle}</p>
             </div>
           </div>
           {onRefresh && (

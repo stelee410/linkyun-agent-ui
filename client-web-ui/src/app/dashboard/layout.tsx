@@ -8,7 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { getProfile, getCreatorAvatar, type Creator } from "@/lib/api";
 import { ThemePicker } from "@/components/ThemePicker";
 import { DashboardAgentCountsProvider } from "@/contexts/DashboardAgentCountsContext";
-import { WorkspaceProvider, useWorkspace } from "@/contexts/WorkspaceContext";
+import { WorkspaceProvider } from "@/contexts/WorkspaceContext";
 import { AgentStatusFilterSidebar } from "@/components/dashboard/AgentStatusFilterSidebar";
 import { LogoIcon, SearchIcon, LogoutIcon, InviteIcon } from "@/components/icons";
 import { WorkspaceSelect } from "@/components/WorkspaceSelect";
@@ -22,7 +22,6 @@ export default function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
   const { auth, isReady } = useAuth();
-  const { workspaceCode } = useWorkspace();
   const [searchQuery, setSearchQuery] = useState("");
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [creator, setCreator] = useState<Creator | null>(null);
@@ -137,7 +136,6 @@ export default function DashboardLayout({
               open={inviteModalOpen}
               onClose={() => setInviteModalOpen(false)}
               apiKey={auth.apiKey}
-              workspaceCode={workspaceCode || "default"}
             />
             <Link
               href="/dashboard/profile"

@@ -23,7 +23,8 @@ import {
   type LLMProvider,
 } from "@/lib/api";
 import { AgentTestDialog } from "@/components/AgentTestDialog";
-import { AddIcon, EditIcon, VisibilityIcon, DeleteIcon, ChatIcon, ScheduleIcon } from "@/components/icons";
+import { AgentTransferModal } from "@/components/AgentTransferModal";
+import { AddIcon, EditIcon, VisibilityIcon, DeleteIcon, ChatIcon, ScheduleIcon, TransferIcon } from "@/components/icons";
 import { Modal } from "@/components/ui/Modal";
 import { getAgentStatusDisplay, filterAgentsByStatus, countAgentsByStatus } from "@/lib/agentStatus";
 
@@ -40,6 +41,7 @@ export default function DashboardPage() {
   const [viewing, setViewing] = useState<Agent | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
   const [deleteConfirmAgent, setDeleteConfirmAgent] = useState<Agent | null>(null);
+  const [transferAgent, setTransferAgent] = useState<Agent | null>(null);
   const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
   const [createAgentType, setCreateAgentType] = useState<"cloud" | "edge">("cloud");
   const [testDialogAgentId, setTestDialogAgentId] = useState<number | null>(null);
@@ -537,6 +539,17 @@ export default function DashboardPage() {
         )}
       </Modal>
 
+      {/* 迁移 Agent 弹窗 */}
+      {auth?.apiKey && (
+        <AgentTransferModal
+          open={!!transferAgent}
+          onClose={() => setTransferAgent(null)}
+          onSuccess={loadAgents}
+          apiKey={auth.apiKey}
+          agent={transferAgent}
+        />
+      )}
+
       {/* 卡片网格：按左侧状态筛选后的列表 */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {filteredAgents.map((agent) => {
@@ -594,7 +607,7 @@ export default function DashboardPage() {
                   )}
                 </div>
               </div>
-              {/* 悬浮操作层：编辑、测试聊天、查看、删除右对齐 */}
+              {/* 悬浮操作层：编辑、测试聊天、查看、迁移、删除右对齐 */}
               <div className="absolute inset-0 bg-background/80 opacity-0 group-hover:opacity-100 flex items-center justify-end gap-4 pr-6 transition-opacity duration-300">
                 <Link
                   href={`/dashboard/agents/${agent.id}/edit`}
@@ -610,6 +623,14 @@ export default function DashboardPage() {
                   title="测试聊天"
                 >
                   <ChatIcon className="w-5 h-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTransferAgent(agent)}
+                  className="w-10 h-10 rounded-full bg-surface text-text-primary flex items-center justify-center hover:bg-primary hover:text-white transition-all hover:scale-110 shadow"
+                  title="迁移"
+                >
+                  <TransferIcon className="w-5 h-5" />
                 </button>
                 <button
                   type="button"
