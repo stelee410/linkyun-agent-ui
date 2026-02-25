@@ -379,9 +379,9 @@ export interface SendMessageResponse {
 
 async function request<T>(
   path: string,
-  options: RequestInit & { apiKey?: string } = {}
+  options: RequestInit & { apiKey?: string; workspaceCode?: string } = {}
 ): Promise<ApiResponse<T>> {
-  const { apiKey, ...init } = options;
+  const { apiKey, workspaceCode, ...init } = options;
   const url = `${getBaseUrl()}/api/v1${path}`;
   const headers: HeadersInit = {
     "Content-Type": "application/json",
@@ -390,11 +390,24 @@ async function request<T>(
   if (apiKey) {
     (headers as Record<string, string>)["X-API-Key"] = apiKey;
   }
+  if (workspaceCode) {
+    (headers as Record<string, string>)["X-Workspace-Code"] = workspaceCode;
+  }
 
   const res = await fetch(url, { ...init, headers });
 
   const text = await res.text();
-  const json = text ? JSON.parse(text) : { success: true };
+  let json: { success?: boolean; data?: T; error?: { message?: string } } = { success: true };
+  if (text) {
+    try {
+      json = JSON.parse(text);
+    } catch {
+      return {
+        success: false,
+        error: { message: res.ok ? "Invalid response format" : `HTTP ${res.status}` },
+      };
+    }
+  }
 
   if (!res.ok) {
     return {
@@ -403,6 +416,54 @@ async function request<T>(
     };
   }
   return json;
+}
+
+// ============ Workspace ============
+
+export interface Workspace {
+  id: number;
+  uuid: string;
+  name: string;
+  code: string;
+  creator_id: number;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceWithRole extends Workspace {
+  role: string;
+}
+
+export async function getUserWorkspaces(apiKey: string) {
+  return request<{ workspaces: WorkspaceWithRole[]; total: number }>("/user/workspaces", {
+    method: "GET",
+    apiKey,
+  });
+}
+
+export async function switchWorkspace(apiKey: string, workspaceCode: string) {
+  return request<{ workspace: Workspace; message: string }>("/user/workspace/switch", {
+    method: "POST",
+    apiKey,
+    body: JSON.stringify({ workspace_code: workspaceCode }),
+  });
+}
+
+export async function getWorkspaceInviteCode(apiKey: string, workspaceCode: string) {
+  return request<{ invite_code: string }>("/user/workspace/invite-code", {
+    method: "GET",
+    apiKey,
+    workspaceCode,
+  });
+}
+
+export async function refreshWorkspaceInviteCode(apiKey: string, workspaceCode: string) {
+  return request<{ invite_code: string }>("/user/workspace/invite-code/refresh", {
+    method: "POST",
+    apiKey,
+    workspaceCode,
+  });
 }
 
 // ============ 认证 ============
@@ -462,10 +523,11 @@ export async function changePassword(
 
 // ============ Agents ============
 
-export async function listAgents(apiKey: string) {
+export async function listAgents(apiKey: string, options?: { workspaceCode?: string }) {
   const res = await request<{ agents: Agent[]; total: number }>("/agents", {
     method: "GET",
     apiKey,
+    workspaceCode: options?.workspaceCode,
   });
   return res;
 }
@@ -491,11 +553,13 @@ export async function createAgent(
     system_prompt?: string;
     temperature?: number;
     agent_type?: 'cloud' | 'edge';
-  }
+  },
+  options?: { workspaceCode?: string }
 ) {
   return request<Agent>("/agents", {
     method: "POST",
     apiKey,
+    workspaceCode: options?.workspaceCode,
     body: JSON.stringify({
       code: data.code,
       name: data.name,

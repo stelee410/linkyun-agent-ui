@@ -8,8 +8,11 @@ import { useAuth } from "@/hooks/useAuth";
 import { getProfile, getCreatorAvatar, type Creator } from "@/lib/api";
 import { ThemePicker } from "@/components/ThemePicker";
 import { DashboardAgentCountsProvider } from "@/contexts/DashboardAgentCountsContext";
+import { WorkspaceProvider, useWorkspace } from "@/contexts/WorkspaceContext";
 import { AgentStatusFilterSidebar } from "@/components/dashboard/AgentStatusFilterSidebar";
-import { LogoIcon, SearchIcon, LogoutIcon } from "@/components/icons";
+import { LogoIcon, SearchIcon, LogoutIcon, InviteIcon } from "@/components/icons";
+import { WorkspaceSelect } from "@/components/WorkspaceSelect";
+import { WorkspaceInviteModal } from "@/components/WorkspaceInviteModal";
 
 export default function DashboardLayout({
   children,
@@ -19,7 +22,9 @@ export default function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
   const { auth, isReady } = useAuth();
+  const { workspaceCode } = useWorkspace();
   const [searchQuery, setSearchQuery] = useState("");
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [creator, setCreator] = useState<Creator | null>(null);
 
   useEffect(() => {
@@ -76,6 +81,7 @@ export default function DashboardLayout({
   const isSessionsFullPage = pathname === "/dashboard/sessions";
 
   return (
+    <WorkspaceProvider>
     <DashboardAgentCountsProvider>
     <div className="min-h-screen flex flex-col bg-background text-text-primary">
       <header className="sticky top-0 z-50 border-b border-border bg-surface/80 backdrop-blur">
@@ -115,6 +121,24 @@ export default function DashboardLayout({
             </nav>
           </div>
           <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2 pr-6 border-r border-border">
+              <span className="text-xs text-text-secondary hidden sm:inline">工作空间</span>
+              <WorkspaceSelect apiKey={auth.apiKey} />
+              <button
+                type="button"
+                onClick={() => setInviteModalOpen(true)}
+                className="p-1.5 rounded-lg text-text-secondary hover:text-primary hover:bg-primary/10 transition-colors"
+                title="邀请码"
+              >
+                <InviteIcon className="w-5 h-5" />
+              </button>
+            </div>
+            <WorkspaceInviteModal
+              open={inviteModalOpen}
+              onClose={() => setInviteModalOpen(false)}
+              apiKey={auth.apiKey}
+              workspaceCode={workspaceCode || "default"}
+            />
             <Link
               href="/dashboard/profile"
               className="flex items-center gap-3 pr-6 border-r border-border hover:opacity-80 transition-opacity"
@@ -181,5 +205,6 @@ export default function DashboardLayout({
       </main>
     </div>
     </DashboardAgentCountsProvider>
+    </WorkspaceProvider>
   );
 }

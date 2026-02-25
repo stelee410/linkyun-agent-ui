@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getAuth } from "@/lib/auth";
 import { useDashboardAgentCounts } from "@/contexts/DashboardAgentCountsContext";
+import { useWorkspace, WORKSPACE_CHANGED_EVENT } from "@/contexts/WorkspaceContext";
 import {
   listAgents,
   createAgent,
@@ -30,6 +31,7 @@ export default function DashboardPage() {
   const auth = getAuth();
   const searchParams = useSearchParams();
   const { setCounts } = useDashboardAgentCounts();
+  const { workspaceCode } = useWorkspace();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [llmProviders, setLlmProviders] = useState<LLMProvider[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,9 +63,20 @@ export default function DashboardPage() {
     deleteConfirmInput.trim() === DELETE_CONFIRM_ZH ||
     deleteConfirmInput.trim().toLowerCase() === DELETE_CONFIRM_EN.toLowerCase();
 
+  const loadAgents = () => loadAgentsWithWorkspace();
+
   useEffect(() => {
     if (!auth?.apiKey) return;
     loadAgents();
+  }, [auth?.apiKey, workspaceCode]);
+
+  useEffect(() => {
+    const onWorkspaceChanged = (e: Event) => {
+      const code = (e as CustomEvent<{ workspaceCode: string }>)?.detail?.workspaceCode;
+      loadAgentsWithWorkspace(code);
+    };
+    window.addEventListener(WORKSPACE_CHANGED_EVENT, onWorkspaceChanged);
+    return () => window.removeEventListener(WORKSPACE_CHANGED_EVENT, onWorkspaceChanged);
   }, [auth?.apiKey]);
 
   useEffect(() => {
@@ -128,13 +141,14 @@ export default function DashboardPage() {
     setTestDialogAgentId(agent.id);
   };
 
-  const loadAgents = async () => {
+  const loadAgentsWithWorkspace = async (wsCode?: string) => {
     if (!auth?.apiKey) return;
+    const code = wsCode ?? workspaceCode;
     setLoading(true);
     setError("");
     try {
       const [agentsRes, providersRes] = await Promise.all([
-        listAgents(auth.apiKey),
+        listAgents(auth.apiKey, { workspaceCode: code && code !== "default" ? code : undefined }),
         getLLMProviders(auth.apiKey),
       ]);
       if (agentsRes.success && agentsRes.data) {
@@ -174,13 +188,17 @@ export default function DashboardPage() {
     }
     setError("");
     try {
-      const res = await createAgent(auth.apiKey, {
-        code,
-        name,
-        description: description || undefined,
-        system_prompt: systemPrompt || undefined,
-        agent_type: createAgentType,
-      });
+      const res = await createAgent(
+        auth.apiKey,
+        {
+          code,
+          name,
+          description: description || undefined,
+          system_prompt: systemPrompt || undefined,
+          agent_type: createAgentType,
+        },
+        { workspaceCode: workspaceCode && workspaceCode !== "default" ? workspaceCode : undefined }
+      );
       if (res.success) {
         setShowCreate(false);
         loadAgents();
