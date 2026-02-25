@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useWorkspace } from '../contexts/WorkspaceContext';
+import WorkspaceSelect from './WorkspaceSelect';
+import JoinWorkspaceModal from './JoinWorkspaceModal';
+import { leaveWorkspace } from '../services/api';
 import { listPublishedAgents, getAgentAvatarUrl } from '../services/api';
 import type { DiscoverAgent } from '../services/api';
 
@@ -25,6 +30,12 @@ function isOnline(agent: DiscoverAgent): boolean {
 
 const DiscoveryGrid: React.FC<DiscoveryGridProps> = ({ apiKey, friendIds, onAddFriend, onRemoveFriend, onChatWith, onViewMoments, onBack }) => {
   const { language, setLanguage, t } = useLanguage();
+  const { workspaceCode, setWorkspaceCode } = useWorkspace();
+  const [showJoinModal, setShowJoinModal] = useState(false);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [leaveLoading, setLeaveLoading] = useState(false);
+  const [leaveError, setLeaveError] = useState<string | null>(null);
+  const [refreshWorkspacesKey, setRefreshWorkspacesKey] = useState(0);
   const [agents, setAgents] = useState<DiscoverAgent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,7 +72,7 @@ const DiscoveryGrid: React.FC<DiscoveryGridProps> = ({ apiKey, friendIds, onAddF
     let cancelled = false;
     setLoading(true);
     setError(null);
-    listPublishedAgents(apiKey).then((res) => {
+    listPublishedAgents(apiKey, workspaceCode).then((res) => {
       if (cancelled) return;
       setLoading(false);
       if (res.success && res.data?.agents) {
@@ -77,7 +88,7 @@ const DiscoveryGrid: React.FC<DiscoveryGridProps> = ({ apiKey, friendIds, onAddF
       setAgents([]);
     });
     return () => { cancelled = true; };
-  }, [apiKey]);
+  }, [apiKey, workspaceCode]);
 
   return (
     <div className="flex-1 flex flex-col h-full bg-background-dark overflow-y-auto custom-scrollbar text-theme-text">
@@ -102,6 +113,78 @@ const DiscoveryGrid: React.FC<DiscoveryGridProps> = ({ apiKey, friendIds, onAddF
             {language === 'en' ? '中' : 'EN'}
           </button>
         </div>
+        <div className="flex flex-wrap items-center gap-2 sm:gap-4">
+          <WorkspaceSelect apiKey={apiKey} refreshTrigger={refreshWorkspacesKey} />
+          {workspaceCode === 'default' ? (
+            <button
+              onClick={() => setShowJoinModal(true)}
+              className="px-3 py-1.5 text-sm font-bold text-primary border border-primary rounded-xl hover:bg-primary/10 transition-all flex items-center gap-1.5"
+            >
+              <span className="material-symbols-outlined text-lg">person_add</span>
+              {t.discovery.joinWorkspace}
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowLeaveConfirm(true)}
+              disabled={leaveLoading}
+              className="px-3 py-1.5 text-sm font-bold text-red-400 border border-red-400/50 rounded-xl hover:bg-red-400/10 transition-all flex items-center gap-1.5 disabled:opacity-70"
+            >
+              <span className="material-symbols-outlined text-lg">person_remove</span>
+              {t.discovery.leaveWorkspace}
+            </button>
+          )}
+        </div>
+        {showLeaveConfirm && (() => {
+          const leaveModal = (
+            <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => !leaveLoading && (setShowLeaveConfirm(false), setLeaveError(null))}>
+              <div className="bg-surface-dark border border-border-dark rounded-3xl shadow-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-lg font-bold text-white mb-2">{t.discovery.leaveWorkspaceModalTitle}</h3>
+                <p className="text-sm text-slate-400 mb-4">{t.discovery.leaveWorkspaceConfirm}</p>
+                {leaveError && <p className="text-red-400 text-sm mb-4">{leaveError}</p>}
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => !leaveLoading && (setShowLeaveConfirm(false), setLeaveError(null))}
+                    disabled={leaveLoading}
+                    className="flex-1 py-2.5 rounded-xl border border-border-dark text-slate-300 hover:text-white transition-all font-bold text-sm disabled:opacity-70"
+                  >
+                    {t.friends.cancel}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (leaveLoading) return;
+                      setLeaveLoading(true);
+                      setLeaveError(null);
+                      const res = await leaveWorkspace(apiKey, workspaceCode);
+                      setLeaveLoading(false);
+                      if (res.success) {
+                        setShowLeaveConfirm(false);
+                        setWorkspaceCode('default');
+                        setRefreshWorkspacesKey((k) => k + 1);
+                      } else {
+                        setLeaveError(res.error?.message ?? t.discovery.leaveFailed);
+                      }
+                    }}
+                    disabled={leaveLoading}
+                    className="flex-1 py-2.5 rounded-xl bg-red-500/20 text-red-400 border border-red-500/50 font-bold text-sm hover:bg-red-500/30 transition-all disabled:opacity-70"
+                  >
+                    {leaveLoading ? t.common.loading : t.discovery.leaveWorkspace}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+          return typeof document !== 'undefined' ? createPortal(leaveModal, document.body) : leaveModal;
+        })()}
+        {showJoinModal && (
+          <JoinWorkspaceModal
+            apiKey={apiKey}
+            onClose={() => setShowJoinModal(false)}
+            onSuccess={(ws) => {
+              setWorkspaceCode(ws.code);
+              setRefreshWorkspacesKey((k) => k + 1);
+            }}
+          />
+        )}
         {!loading && !error && agents.length > 0 && (
           <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
             <div className="relative flex-1">

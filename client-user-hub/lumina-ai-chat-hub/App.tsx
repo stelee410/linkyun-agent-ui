@@ -10,6 +10,7 @@ import MomentsFeed from './components/MomentsFeed';
 import AuthScreen from './components/AuthScreen';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext';
+import { WorkspaceProvider } from './contexts/WorkspaceContext';
 import { getAuth, setAuth, clearAuth } from './lib/auth';
 import type { Creator, DiscoverAgent, UserChatSession, ChatMessage, GroupChatSession } from './services/api';
 import { getCreatorAvatar, getProfile } from './services/api';
@@ -1118,7 +1119,9 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => (
   <ThemeProvider>
     <LanguageProvider>
-      <AppContent />
+      <WorkspaceProvider>
+        <AppContent />
+      </WorkspaceProvider>
     </LanguageProvider>
   </ThemeProvider>
 );

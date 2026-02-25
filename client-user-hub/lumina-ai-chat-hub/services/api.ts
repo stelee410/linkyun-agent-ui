@@ -275,9 +275,9 @@ export interface AuthResponse {
 
 async function request<T>(
   path: string,
-  options: RequestInit & { apiKey?: string } = {}
+  options: RequestInit & { apiKey?: string; workspaceCode?: string } = {}
 ): Promise<ApiResponse<T>> {
-  const { apiKey, ...init } = options;
+  const { apiKey, workspaceCode, ...init } = options;
   const url = `${getBaseUrl()}/api/v1${path}`;
   const headers: HeadersInit = {
     "Content-Type": "application/json",
@@ -285,6 +285,9 @@ async function request<T>(
   };
   if (apiKey) {
     (headers as Record<string, string>)["X-API-Key"] = apiKey;
+  }
+  if (workspaceCode) {
+    (headers as Record<string, string>)["X-Workspace-Code"] = workspaceCode;
   }
 
   const res = await fetch(url, { ...init, headers });
@@ -296,6 +299,72 @@ async function request<T>(
     return { success: false, error: { message: errMsg } };
   }
   return { success: true, data: json as T };
+}
+
+// ============ Workspace ============
+
+export interface Workspace {
+  id: number;
+  uuid: string;
+  name: string;
+  code: string;
+  creator_id: number;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceWithRole extends Workspace {
+  role: string;
+}
+
+export async function getUserWorkspaces(apiKey: string): Promise<ApiResponse<{ workspaces: WorkspaceWithRole[]; total: number }>> {
+  const res = await request<{ success?: boolean; data?: { workspaces: WorkspaceWithRole[]; total: number } }>("/user/workspaces", {
+    method: "GET",
+    apiKey,
+  });
+  if (res.success && res.data?.data) {
+    return { success: true, data: res.data.data };
+  }
+  return res as ApiResponse<{ workspaces: WorkspaceWithRole[]; total: number }>;
+}
+
+export async function switchWorkspace(apiKey: string, workspaceCode: string): Promise<ApiResponse<{ workspace: Workspace; message: string }>> {
+  const res = await request<{ success?: boolean; data?: { workspace: Workspace; message: string } }>("/user/workspace/switch", {
+    method: "POST",
+    apiKey,
+    body: JSON.stringify({ workspace_code: workspaceCode }),
+  });
+  if (res.success && res.data?.data) {
+    return { success: true, data: res.data.data };
+  }
+  return res as ApiResponse<{ workspace: Workspace; message: string }>;
+}
+
+/** 离开工作空间（当前工作空间非 default 时可用） */
+export async function leaveWorkspace(apiKey: string, workspaceCode: string): Promise<ApiResponse<{ message: string }>> {
+  const res = await request<{ success?: boolean; data?: { message: string } }>("/user/workspace/leave", {
+    method: "POST",
+    apiKey,
+    body: JSON.stringify({ workspace_code: workspaceCode.trim() }),
+  });
+  if (res.success && res.data?.data) {
+    return { success: true, data: res.data.data };
+  }
+  return res as ApiResponse<{ message: string }>;
+}
+
+/** 通过邀请码加入工作空间，加入后为 member 角色（不可编辑 Agent） */
+export async function joinWorkspace(apiKey: string, inviteCode: string): Promise<ApiResponse<{ workspace: Workspace; message: string }>> {
+  const res = await request<{ success?: boolean; data?: { workspace: Workspace; message: string } }>("/user/workspace/join", {
+    method: "POST",
+    apiKey,
+    body: JSON.stringify({ invite_code: inviteCode.trim() }),
+  });
+  if (res.success && res.data?.data) {
+    return { success: true, data: res.data.data };
+  }
+  return res as ApiResponse<{ workspace: Workspace; message: string }>;
 }
 
 export async function login(
@@ -864,13 +933,14 @@ export async function deleteGroupChat(
   return res as ApiResponse<{ message: string }>;
 }
 
-/** 获取所有已发布的 Agent（跨 Creator），用于 Discover */
+/** 获取已发布的 Agent（按工作空间过滤），用于 Discover */
 export async function listPublishedAgents(
-  apiKey: string
+  apiKey: string,
+  workspaceCode?: string
 ): Promise<ApiResponse<ListAgentsResponse>> {
   const res = await request<{ success?: boolean; data?: ListAgentsResponse }>(
     "/agents/discover",
-    { method: "GET", apiKey }
+    { method: "GET", apiKey, workspaceCode: workspaceCode ?? "default" }
   );
   if (res.success && res.data?.data) {
     return { success: true, data: res.data.data };

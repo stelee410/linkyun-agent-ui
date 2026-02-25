@@ -53,7 +53,22 @@ const translations = {
       sortByTimeDesc: "Time (Newest)",
       sortByTimeAsc: "Time (Oldest)",
       sortByNameAsc: "Name (A-Z)",
-      sortByNameDesc: "Name (Z-A)"
+      sortByNameDesc: "Name (Z-A)",
+      workspace: "Workspace",
+      switchWorkspace: "Switch workspace",
+      currentWorkspace: "Current workspace",
+      defaultWorkspaceName: "Default",
+      joinWorkspace: "Join",
+      joinWorkspaceModalTitle: "Join Workspace",
+      joinWorkspaceModalDesc: "Enter the invite code to join a workspace. You will be added as a member and can use AI agents, but cannot edit them.",
+      inviteCodePlaceholder: "Enter invite code",
+      joinSuccess: "Joined workspace successfully",
+      joinFailed: "Failed to join workspace",
+      leaveWorkspace: "Leave",
+      leaveWorkspaceModalTitle: "Leave Workspace",
+      leaveWorkspaceConfirm: "Are you sure you want to leave this workspace? You can rejoin with an invite code later.",
+      leaveSuccess: "Left workspace successfully",
+      leaveFailed: "Failed to leave workspace"
     },
     friends: {
       title: "My Friends",
@@ -155,6 +170,7 @@ const translations = {
       saveSuccess: "Profile saved!"
     },
     common: {
+      loading: "Loading...",
       online: "Online",
       noChats: "No active chats. Start a conversation from your Friends list!",
       done: "Done",
@@ -212,7 +228,22 @@ const translations = {
       sortByTimeDesc: "时间（最新）",
       sortByTimeAsc: "时间（最早）",
       sortByNameAsc: "名称（A-Z）",
-      sortByNameDesc: "名称（Z-A）"
+      sortByNameDesc: "名称（Z-A）",
+      workspace: "工作空间",
+      switchWorkspace: "切换工作空间",
+      currentWorkspace: "当前工作空间",
+      defaultWorkspaceName: "默认空间",
+      joinWorkspace: "加入",
+      joinWorkspaceModalTitle: "加入工作空间",
+      joinWorkspaceModalDesc: "输入邀请码加入工作空间。您将以成员身份加入，可使用 AI Agent 但不可编辑。",
+      inviteCodePlaceholder: "输入邀请码",
+      joinSuccess: "加入工作空间成功",
+      joinFailed: "加入工作空间失败",
+      leaveWorkspace: "离开",
+      leaveWorkspaceModalTitle: "离开工作空间",
+      leaveWorkspaceConfirm: "确定要离开此工作空间吗？之后可通过邀请码重新加入。",
+      leaveSuccess: "已离开工作空间",
+      leaveFailed: "离开工作空间失败"
     },
     friends: {
       title: "我的好友",
@@ -314,6 +345,7 @@ const translations = {
       saveSuccess: "个人资料已保存！"
     },
     common: {
+      loading: "加载中...",
       online: "在线",
       noChats: "暂无聊天。从好友列表开始对话吧！",
       done: "完成",
