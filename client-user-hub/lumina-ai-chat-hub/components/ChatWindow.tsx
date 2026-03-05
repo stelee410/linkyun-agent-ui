@@ -1,7 +1,8 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import mermaid from 'mermaid';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
 import { ChatSession, AIDigitalHuman, PersonaType } from '../types';
 import { AI_HUMANS } from '../constants';
@@ -18,6 +19,117 @@ import { MessageAttachments } from './MessageAttachments';
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** 将制表符分隔的表格块转换为 Markdown 表格格式 */
+function wrapTabularToMarkdown(text: string): string {
+  const codeBlocks: string[] = [];
+  let out = text.replace(/```[\s\S]*?```/g, (m) => {
+    codeBlocks.push(m);
+    return `\x00CODE_BLOCK_${codeBlocks.length - 1}\x00`;
+  });
+  const lines = out.split('\n');
+  const result: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.includes('\t') && (line.match(/\t/g)?.length ?? 0) >= 1) {
+      const block: string[] = [];
+      while (i < lines.length && lines[i].includes('\t') && (lines[i].match(/\t/g)?.length ?? 0) >= 1) {
+        block.push(lines[i]);
+        i++;
+      }
+      const cols = block[0].split('\t').length;
+      const rows = block.map((row) =>
+        row
+          .split('\t')
+          .map((c) => c.trim())
+          .join(' | ')
+      );
+      const parts = rows.map((r) => `| ${r} |`);
+      const sep = `| ${Array(cols).fill('---').join(' | ')} |`;
+      const mdTable = [parts[0], sep, ...parts.slice(1)].join('\n');
+      result.push(mdTable);
+      continue;
+    }
+    result.push(line);
+    i++;
+  }
+  out = result.join('\n');
+  codeBlocks.forEach((b, idx) => {
+    out = out.replace(`\x00CODE_BLOCK_${idx}\x00`, b);
+  });
+  return out;
+}
+
+/** 将裸的 graph LR/TD 等块包装成 ```mermaid ... ``` 以便渲染（不处理已存在的 ```mermaid 块） */
+function wrapBareMermaid(text: string): string {
+  const blocks: string[] = [];
+  let out = text.replace(/```mermaid\n[\s\S]*?```/g, (m) => {
+    blocks.push(m);
+    return `\x00MERMAID_PLACEHOLDER_${blocks.length - 1}\x00`;
+  });
+  const patterns = [
+    /(^|\n)(graph\s+(?:LR|RL|TB|BT|TD)[\s\S]*?)(?=\n\n|\n#|\n```|$)/gm,
+    /(^|\n)(flowchart\s+(?:LR|RL|TB|BT|TD)[\s\S]*?)(?=\n\n|\n#|\n```|$)/gm,
+    /(^|\n)(sequenceDiagram[\s\S]*?)(?=\n\n|\n#|\n```|$)/gm,
+    /(^|\n)(stateDiagram[\s\S]*?)(?=\n\n|\n#|\n```|$)/gm,
+  ];
+  for (const re of patterns) {
+    out = out.replace(re, (_full, before: string, block: string) => {
+      if (/^```/.test(block.trim())) return _full;
+      return `${before}\n\`\`\`mermaid\n${block.trim()}\n\`\`\``;
+    });
+  }
+  blocks.forEach((b, i) => {
+    out = out.replace(`\x00MERMAID_PLACEHOLDER_${i}\x00`, b);
+  });
+  return out;
+}
+
+let mermaidInitialized = false;
+function ensureMermaidInit(): void {
+  if (mermaidInitialized) return;
+  mermaid.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'loose' });
+  mermaidInitialized = true;
+}
+
+function MermaidDiagram({ code }: { code: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [svg, setSvg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const idRef = useRef(`mermaid-${Math.random().toString(36).slice(2, 11)}`);
+
+  useLayoutEffect(() => {
+    const raw = code.trim();
+    if (!raw) return;
+    ensureMermaidInit();
+    const id = idRef.current;
+    setError(null);
+    mermaid
+      .render(id, raw)
+      .then(({ svg: s }) => setSvg(s))
+      .catch((e) => setError(String(e?.message ?? e)));
+  }, [code]);
+
+  if (error) {
+    return (
+      <details className="my-2 rounded border border-amber-500/50 bg-amber-500/10 p-2 text-sm">
+        <summary className="cursor-pointer text-amber-600 dark:text-amber-400">Mermaid 渲染失败</summary>
+        <pre className="mt-2 whitespace-pre-wrap break-all text-xs opacity-80">{code}</pre>
+      </details>
+    );
+  }
+  if (!svg) {
+    return <div className="my-2 min-h-[60px] animate-pulse rounded bg-black/10 dark:bg-white/10" aria-hidden />;
+  }
+  return (
+    <div
+      ref={containerRef}
+      className="mermaid-diagram my-3 overflow-x-auto rounded bg-black/5 dark:bg-white/5 p-3"
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
 }
 
 function VoiceMessageBlock({
@@ -688,8 +800,30 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
                 ) : (
                   <>
                     <div className="markdown-content max-w-full overflow-hidden">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {msg.text || '\u200b'}
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          code({ node, inline, className, children, ...props }) {
+                            const match = /language-(\w+)/.exec(className ?? '');
+                            if (!inline && match?.[1] === 'mermaid') {
+                              return <MermaidDiagram code={String(children).replace(/\n$/, '')} />;
+                            }
+                            return (
+                              <code className={className} {...props}>
+                                {children}
+                              </code>
+                            );
+                          },
+                          table({ children }) {
+                            return (
+                              <div className="overflow-x-auto my-2 -mx-1">
+                                <table>{children}</table>
+                              </div>
+                            );
+                          },
+                        }}
+                      >
+                        {wrapBareMermaid(wrapTabularToMarkdown(msg.text ?? '')) || '\u200b'}
                       </ReactMarkdown>
                     </div>
                     {msg.attachments && msg.attachments.length > 0 && (

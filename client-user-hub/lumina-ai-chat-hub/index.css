@@ -108,3 +108,29 @@ h1, h2, h3, h4, h5, h6, p, span, input, textarea, button {
 
 .markdown-content p { margin-bottom: 0.5rem; }
 .markdown-content p:last-child { margin-bottom: 0; }
+
+/* 表格样式 */
+.markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 0.9em;
+  border-radius: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+}
+.markdown-content th,
+.markdown-content td {
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+.markdown-content th {
+  background: rgba(128, 128, 128, 0.15);
+  font-weight: 600;
+}
+.markdown-content tbody tr:nth-child(even) {
+  background: rgba(128, 128, 128, 0.06);
+}
+.markdown-content tbody tr:hover {
+  background: rgba(128, 128, 128, 0.1);
+}
