@@ -1015,6 +1015,103 @@ export async function sendMessage(
   );
 }
 
+/** SSE event from streaming API */
+export interface StreamEvent {
+  type: "delta" | "done" | "error";
+  text?: string;
+  message_id?: string;
+  usage?: { input_tokens: number; output_tokens: number; total_tokens: number };
+  error?: string;
+}
+
+/** 流式发送消息，通过回调逐块接收内容 */
+export async function sendMessageStream(
+  apiKey: string,
+  sessionId: number,
+  content: string,
+  options: SendMessageOptions | undefined,
+  callbacks: {
+    onChunk: (text: string) => void;
+    onDone: (messageId: string, usage?: StreamEvent["usage"]) => void;
+    onError?: (err: string) => void;
+  }
+): Promise<void> {
+  const body: Record<string, unknown> = { content, stream: true };
+  if (options?.attachments && options.attachments.length > 0) {
+    body.attachments = options.attachments;
+  }
+  if (options?.metadata?.custom_fields && Object.keys(options.metadata.custom_fields ?? {}).length > 0) {
+    body.metadata = options.metadata;
+  }
+  const url = `${getBaseUrl()}/api/v1/sessions/${sessionId}/messages`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-API-Key": apiKey,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    callbacks.onError?.(errText || `HTTP ${res.status}`);
+    throw new Error(errText || `HTTP ${res.status}`);
+  }
+  const reader = res.body?.getReader();
+  if (!reader) {
+    callbacks.onError?.("No response body");
+    throw new Error("No response body");
+  }
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const data = line.slice(6).trim();
+          if (!data) continue;
+          try {
+            const ev = JSON.parse(data) as StreamEvent;
+            if (ev.type === "delta" && ev.text) {
+              callbacks.onChunk(ev.text);
+            } else if (ev.type === "done" && ev.message_id) {
+              callbacks.onDone(ev.message_id, ev.usage);
+              return;
+            } else if (ev.type === "error") {
+              callbacks.onError?.(ev.error ?? "Stream error");
+              throw new Error(ev.error ?? "Stream error");
+            }
+          } catch (e) {
+            if (e instanceof SyntaxError) continue;
+            throw e;
+          }
+        }
+      }
+    }
+    if (buffer.startsWith("data: ")) {
+      const data = buffer.slice(6).trim();
+      if (data) {
+        try {
+          const ev = JSON.parse(data) as StreamEvent;
+          if (ev.type === "done" && ev.message_id) {
+            callbacks.onDone(ev.message_id, ev.usage);
+            return;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 // ============ Memory ============
 
 export async function clearUserMemories(apiKey: string, userId: number, agentId: number) {

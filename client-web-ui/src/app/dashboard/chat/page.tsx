@@ -6,6 +6,7 @@ import { getAuth } from "@/lib/auth";
 import {
   getSessionMessages,
   sendMessage,
+  sendMessageStream,
   listAgents,
   createSession,
   getSession,
@@ -179,6 +180,7 @@ export default function ChatPage() {
       Object.keys(widgetMetadata).length > 0 ? { custom_fields: widgetMetadata } : undefined;
 
     // 乐观更新：先显示用户消息
+    const tempAssistantId = Date.now() + 1;
     setMessages((prev) => [
       ...prev,
       {
@@ -191,35 +193,74 @@ export default function ChatPage() {
         attachments: attachmentsToSend.length > 0 ? attachmentsToSend : undefined,
         created_at: new Date().toISOString(),
       } as Message,
+      {
+        id: tempAssistantId,
+        uuid: "",
+        session_id: sessionId,
+        role: "assistant",
+        content: "",
+        content_type: "text",
+        created_at: new Date().toISOString(),
+      } as Message,
     ]);
 
-    try {
-      const res = await sendMessage(auth.apiKey, sessionId, content, {
-        attachments: attachmentsToSend.length > 0 ? (attachmentsToSend as SendMessageAttachment[]) : undefined,
-        metadata: customFields,
+    const opts = {
+      attachments: attachmentsToSend.length > 0 ? (attachmentsToSend as SendMessageAttachment[]) : undefined,
+      metadata: customFields,
+    };
+
+    const tryStream = async () => {
+      await sendMessageStream(auth.apiKey, sessionId, content, opts, {
+        onChunk: (text) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempAssistantId ? { ...m, content: m.content + text } : m
+            )
+          );
+        },
+        onDone: (messageId) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempAssistantId ? { ...m, uuid: messageId } : m
+            )
+          );
+        },
       });
+    };
+
+    const tryNonStream = async () => {
+      const res = await sendMessage(auth.apiKey, sessionId, content, opts);
       if (res.success && res.data) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: Date.now() + 1,
-            uuid: res.data!.message_id,
-            session_id: sessionId,
-            role: "assistant",
-            content: res.data!.content,
-            content_type: "text",
-            attachments: res.data!.attachments,
-            created_at: new Date().toISOString(),
-            audio_url: res.data!.audio_url,
-          } as Message,
-        ]);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempAssistantId
+              ? {
+                  ...m,
+                  uuid: res.data!.message_id,
+                  content: res.data!.content,
+                  attachments: res.data!.attachments,
+                  audio_url: res.data!.audio_url,
+                }
+              : m
+          )
+        );
       } else {
         setError(res.error?.message || "发送失败");
-        setInput(content); // 恢复输入
+        setInput(content);
+        setMessages((prev) => prev.filter((m) => m.id !== tempAssistantId));
+      }
+    };
+
+    try {
+      try {
+        await tryStream();
+      } catch {
+        await tryNonStream();
       }
     } catch {
       setError("发送失败");
       setInput(content);
+      setMessages((prev) => prev.filter((m) => m.id !== tempAssistantId));
     } finally {
       setSending(false);
       revokeBlobUrls(allAttachments);
@@ -319,7 +360,11 @@ export default function ChatPage() {
                     {audioUrl ? (
                       <VoiceMessage content={msg.content} audioUrl={audioUrl} />
                     ) : (
-                      <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                      <p className="text-sm whitespace-pre-wrap">
+                        {msg.content || (sending ? (
+                          <span className="inline-block w-2 h-2 rounded-full bg-zinc-500 animate-pulse" />
+                        ) : null)}
+                      </p>
                     )}
                     {msg.attachments &&
                       Array.isArray(msg.attachments) &&
@@ -333,7 +378,7 @@ export default function ChatPage() {
                 </div>
               );
             })}
-            {sending && (
+            {sending && messages[messages.length - 1]?.role !== "assistant" && (
               <div className="flex justify-start">
                 <div className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-400 text-sm flex items-center gap-2">
                   <span className="inline-block w-2 h-2 rounded-full bg-zinc-500 animate-pulse" />
