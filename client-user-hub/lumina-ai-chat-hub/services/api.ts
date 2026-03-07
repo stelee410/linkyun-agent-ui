@@ -642,6 +642,103 @@ export async function sendUserMessage(
   return res as ApiResponse<SendMessageResponse>;
 }
 
+/** SSE event from streaming API */
+export interface StreamEvent {
+  type: "delta" | "done" | "error";
+  text?: string;
+  message_id?: string;
+  usage?: { input_tokens: number; output_tokens: number; total_tokens: number };
+  error?: string;
+}
+
+/** 流式发送 1v1 消息，通过回调逐块接收内容。若后端返回 JSON（非 SSE）则解析并回调 onDone。 */
+export async function sendUserMessageStream(
+  apiKey: string,
+  chatId: number,
+  content: string,
+  attachments: { type: string; token?: string }[] | undefined,
+  callbacks: {
+    onChunk: (text: string) => void;
+    onDone: (messageId: string, usage?: StreamEvent["usage"]) => void;
+  }
+): Promise<void> {
+  const body: Record<string, unknown> = { content, stream: true };
+  if (attachments?.length) body.attachments = attachments;
+  const url = `${getBaseUrl()}/api/v1/user/chats/${chatId}/messages`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(errText || `HTTP ${res.status}`);
+  }
+
+  const contentType = res.headers.get("Content-Type") ?? "";
+  const isSSE = contentType.includes("text/event-stream");
+
+  if (!isSSE) {
+    const json = await res.json() as { data?: SendMessageResponse } | SendMessageResponse;
+    const data = (json as { data?: SendMessageResponse }).data ?? (json as SendMessageResponse);
+    const msgId = data?.message_id;
+    const msgContent = data?.content;
+    if (msgId && msgContent) {
+      callbacks.onChunk(msgContent);
+      callbacks.onDone(msgId);
+    } else if (msgId) {
+      callbacks.onDone(msgId);
+    } else {
+      throw new Error("Invalid response format");
+    }
+    return;
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("No response body");
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let gotDone = false;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const data = line.slice(6).trim();
+        if (!data) continue;
+        try {
+          const ev = JSON.parse(data) as StreamEvent;
+          if (ev.type === "delta" && ev.text) callbacks.onChunk(ev.text);
+          else if (ev.type === "done" && ev.message_id) {
+            callbacks.onDone(ev.message_id, ev.usage);
+            gotDone = true;
+            return;
+          } else if (ev.type === "error") throw new Error(ev.error ?? "Stream error");
+        } catch (e) {
+          if (!(e instanceof SyntaxError)) throw e;
+        }
+      }
+    }
+    if (!gotDone && buffer.startsWith("data: ")) {
+      const data = buffer.slice(6).trim();
+      if (data) {
+        try {
+          const ev = JSON.parse(data) as StreamEvent;
+          if (ev.type === "done" && ev.message_id) callbacks.onDone(ev.message_id, ev.usage);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 /** Get chat message history */
 export async function getUserChatMessages(
   apiKey: string,

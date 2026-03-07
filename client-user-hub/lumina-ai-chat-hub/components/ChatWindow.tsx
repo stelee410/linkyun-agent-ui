@@ -839,7 +839,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
             </div>
           </div>
         ))}
-        {sending && typingPhrase && (
+        {sending && typingPhrase && !(sendingInThisChat && chat.messages.length > 0 && chat.messages[chat.messages.length - 1]?.isAI) && (
           <div className="flex gap-3 max-w-[90%] lg:max-w-[85%]">
             <div className="size-8 lg:size-9 rounded-xl overflow-hidden shrink-0 mt-1 border border-border-dark shadow-md bg-slate-600/60 flex items-center justify-center">
               {!sendingInThisChat || chat.participants.length > 1 ? (

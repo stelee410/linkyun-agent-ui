@@ -22,6 +22,7 @@ import {
   createUserChat,
   getUserChatMessages,
   sendUserMessage,
+  sendUserMessageStream,
   toggleShareWithCreator,
   toggleGroupShare,
   clearUserChatMessages,
@@ -656,41 +657,97 @@ const AppContent: React.FC = () => {
         }
       } else {
         const chatId = Number(chatKey);
-        const res = await sendUserMessage(auth.apiKey, chatId, text, attachForApi);
-        if (res.success && res.data) {
-          const aiCreatedAt = new Date().toISOString();
-          const aiMsg: ChatMessage = {
-            id: 0,
-            uuid: res.data.message_id,
-            role: 'assistant',
-            content: res.data.content,
-            content_type: 'text',
-            audio_url: res.data.audio_url,
-            created_at: aiCreatedAt,
-          };
-          setChatMessages((prev) => ({
-            ...prev,
-            [chatKey]: [...(prev[chatKey] || []), aiMsg],
-          }));
-          setChats((prev) =>
-            prev.map((c) =>
-              c.id === chatId
-                ? { ...c, last_message_at: aiCreatedAt, last_message_preview: (res.data!.content || '').slice(0, 50) + ((res.data!.content?.length || 0) > 50 ? '…' : '') }
-                : c
-            )
-          );
-        } else {
-          setChatMessages((prev) => ({
-            ...prev,
-            [chatKey]: (prev[chatKey] || []).filter((m) => m.uuid !== userMsg.uuid),
-          }));
-          setSendError(res.error?.message || 'Send failed');
+        const tempAiUuid = `stream-${Date.now()}`;
+        const aiPlaceholder: ChatMessage = {
+          id: 0,
+          uuid: tempAiUuid,
+          role: 'assistant',
+          content: '',
+          content_type: 'text',
+          created_at: new Date().toISOString(),
+        };
+        setChatMessages((prev) => ({
+          ...prev,
+          [chatKey]: [...(prev[chatKey] || []), aiPlaceholder],
+        }));
+
+        const tryStream = async () => {
+          let accumulated = '';
+          await sendUserMessageStream(auth.apiKey, chatId, text, attachForApi, {
+            onChunk: (chunk) => {
+              accumulated += chunk;
+              setChatMessages((prev) => ({
+                ...prev,
+                [chatKey]: (prev[chatKey] || []).map((m) =>
+                  m.uuid === tempAiUuid ? { ...m, content: m.content + chunk } : m
+                ),
+              }));
+            },
+            onDone: (messageId) => {
+              setChatMessages((prev) => ({
+                ...prev,
+                [chatKey]: (prev[chatKey] || []).map((m) =>
+                  m.uuid === tempAiUuid ? { ...m, uuid: messageId } : m
+                ),
+              }));
+              const preview = accumulated.slice(0, 50) + (accumulated.length > 50 ? '…' : '');
+              setChats((prev) =>
+                prev.map((c) =>
+                  c.id === chatId
+                    ? { ...c, last_message_at: new Date().toISOString(), last_message_preview: preview }
+                    : c
+                )
+              );
+            },
+          });
+        };
+
+        const tryNonStream = async () => {
+          const res = await sendUserMessage(auth.apiKey, chatId, text, attachForApi);
+          if (res.success && res.data) {
+            const aiCreatedAt = new Date().toISOString();
+            setChatMessages((prev) => ({
+              ...prev,
+              [chatKey]: (prev[chatKey] || []).map((m) =>
+                m.uuid === tempAiUuid
+                  ? {
+                      ...m,
+                      uuid: res.data!.message_id,
+                      content: res.data!.content,
+                      audio_url: res.data!.audio_url,
+                      created_at: aiCreatedAt,
+                    }
+                  : m
+              ),
+            }));
+            setChats((prev) =>
+              prev.map((c) =>
+                c.id === chatId
+                  ? { ...c, last_message_at: aiCreatedAt, last_message_preview: (res.data!.content || '').slice(0, 50) + ((res.data!.content?.length || 0) > 50 ? '…' : '') }
+                  : c
+              )
+            );
+          } else {
+            setChatMessages((prev) => ({
+              ...prev,
+              [chatKey]: (prev[chatKey] || []).filter((m) => m.uuid !== tempAiUuid),
+            }));
+            setSendError(res.error?.message || 'Send failed');
+          }
+        };
+
+        try {
+          await tryStream();
+        } catch {
+          await tryNonStream();
         }
       }
     } catch (_e) {
       setChatMessages((prev) => ({
         ...prev,
-        [chatKey]: (prev[chatKey] || []).filter((m) => m.uuid !== userMsg.uuid),
+        [chatKey]: (prev[chatKey] || []).filter(
+          (m) => m.uuid !== userMsg.uuid && !String(m.uuid).startsWith('stream-')
+        ),
       }));
       setSendError('Network error, please check connection');
     } finally {
