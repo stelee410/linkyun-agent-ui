@@ -35,6 +35,7 @@ import {
   createGroupChat as createGroupChatApi,
   sendGroupMessage,
   getGroupChatMessages,
+  subscribeToPushEvents,
   deleteGroupChat as deleteGroupChatApi,
   updateGroupChat as updateGroupChatApi,
   resolvePendingAttachments,
@@ -43,6 +44,8 @@ import {
   unlikeMoment,
   addMomentComment,
   getBaseUrl,
+  getUnreadCounts,
+  markSessionRead,
 } from './services/api';
 import type { APIMoment } from './services/api';
 import type { ChatMessage as APIChatMessage } from './services/api';
@@ -97,15 +100,19 @@ const AppContent: React.FC = () => {
   };
 
   const loadUserChats = async (apiKey: string) => {
-    const [res, gRes] = await Promise.all([
+    const [res, gRes, nRes] = await Promise.all([
       listUserChats(apiKey),
       listGroupChats(apiKey),
+      getUnreadCounts(apiKey),
     ]);
     if (res.success && res.data?.chats) {
       setChats(res.data.chats);
     }
     if (gRes.success && gRes.data?.chats) {
       setGroupChats(gRes.data.chats);
+    }
+    if (nRes.success && nRes.data?.unread_counts) {
+      setUnreadCounts(nRes.data.unread_counts);
     }
   };
 
@@ -221,6 +228,7 @@ const AppContent: React.FC = () => {
   const [showTopicPrompt, setShowTopicPrompt] = useState(false);
   const [topicInput, setTopicInput] = useState('');
   const [groupPolling, setGroupPolling] = useState<string | null>(null);
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   
   // Mobile UI State
   const [showSidebarOnMobile, setShowSidebarOnMobile] = useState(true);
@@ -242,6 +250,7 @@ const AppContent: React.FC = () => {
         lastMessageAt: c.last_message_at,
         createdAt: c.created_at,
         messageCount: c.message_count,
+        unreadCount: unreadCounts[String(c.id)] || 0,
       });
     }
     for (const gc of groupChats) {
@@ -257,6 +266,7 @@ const AppContent: React.FC = () => {
         lastMessageAt: gc.last_message_at,
         createdAt: gc.created_at,
         messageCount: gc.message_count,
+        unreadCount: unreadCounts[String(gc.id)] || 0,
       });
     }
     // 1v1 和 group 按最后活动时间排序；解析失败的时间视为 0，排到最下面
@@ -276,7 +286,7 @@ const AppContent: React.FC = () => {
       return safeTs(b.createdAt) - safeTs(a.createdAt);
     });
     return items;
-  }, [chats, groupChats]);
+  }, [chats, groupChats, unreadCounts]);
 
   // Handle mobile view transitions
   useEffect(() => {
@@ -370,6 +380,42 @@ const AppContent: React.FC = () => {
     const timer = setTimeout(poll, 1500);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [groupPolling]);
+
+  // SSE subscription for real-time push messages when viewing a chat
+  useEffect(() => {
+    if (view !== 'messages' || !activeChatId) return;
+    const auth = getAuth();
+    if (!auth) return;
+    const sessionId = activeChatId.startsWith('group-')
+      ? Number(activeChatId.replace('group-', ''))
+      : Number(activeChatId);
+    if (!sessionId || Number.isNaN(sessionId)) return;
+    const chatKey = activeChatId;
+    const unsubscribe = subscribeToPushEvents(
+      auth.apiKey,
+      sessionId,
+      (ev) => {
+        const cm: APIChatMessage = {
+          id: 0,
+          uuid: ev.message_id,
+          role: 'assistant',
+          content: ev.content,
+          content_type: ev.content_type ?? 'text',
+          sender_agent_id: ev.sender_agent_id ?? null,
+          sender_name: ev.sender_name ?? null,
+          created_at: new Date().toISOString(),
+        };
+        setChatMessages((prev) => {
+          const curr = prev[chatKey] || [];
+          const exists = curr.some((m) => m.uuid === ev.message_id);
+          if (exists) return prev;
+          return { ...prev, [chatKey]: [...curr, cm] };
+        });
+      },
+      () => { /* ignore reconnect handled by cleanup */ }
+    );
+    return unsubscribe;
+  }, [view, activeChatId]);
 
   const addFriend = async (aiId: string) => {
     if (friendIds.includes(aiId)) return;
@@ -822,6 +868,15 @@ const AppContent: React.FC = () => {
           setActiveChatId(key);
           navigateToView('messages');
           if (!chatMessages[key]) loadChatMessages(key);
+          // Mark session as read and clear local unread count
+          if (unreadCounts[key] || unreadCounts[`group-${key}`]) {
+            const sessionId = key.startsWith('group-') ? Number(key.replace('group-', '')) : Number(key);
+            if (sessionId > 0) {
+              const auth = getAuth();
+              if (auth) markSessionRead(auth.apiKey, sessionId);
+              setUnreadCounts((prev) => { const next = { ...prev }; delete next[String(sessionId)]; return next; });
+            }
+          }
         }} 
         onUpdateUser={setCurrentUser}
         onLogout={handleLogout}

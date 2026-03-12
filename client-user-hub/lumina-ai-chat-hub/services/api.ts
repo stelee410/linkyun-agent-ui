@@ -943,6 +943,74 @@ export async function sendGroupMessage(
   return res as ApiResponse<GroupSendMessageResponse>;
 }
 
+/** SSE payload from push message event */
+export interface PushMessageEvent {
+  message_id: string;
+  session_id: number;
+  content: string;
+  sender_agent_id?: number;
+  sender_name?: string | null;
+  content_type?: string;
+}
+
+/**
+ * Subscribe to push message events for a session via SSE.
+ * Uses fetch (not EventSource) to support X-API-Key header.
+ * Returns an abort function to close the connection.
+ */
+export function subscribeToPushEvents(
+  apiKey: string,
+  sessionId: number,
+  onMessage: (msg: PushMessageEvent) => void,
+  onError?: (err: Error) => void
+): () => void {
+  const url = `${getBaseUrl()}/api/v1/user/events?session_id=${sessionId}`;
+  const ac = new AbortController();
+  fetch(url, {
+    method: "GET",
+    headers: { "X-API-Key": apiKey, Accept: "text/event-stream" },
+    signal: ac.signal,
+  })
+    .then(async (res) => {
+      if (!res.ok) {
+        const err = new Error(`SSE HTTP ${res.status}`);
+        onError?.(err);
+        return;
+      }
+      const reader = res.body?.getReader();
+      if (!reader) return;
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const blocks = buf.split("\n\n");
+        buf = blocks.pop() ?? "";
+        for (const block of blocks) {
+          let event = "";
+          let data = "";
+          for (const line of block.split("\n")) {
+            if (line.startsWith("event: ")) event = line.slice(7).trim();
+            else if (line.startsWith("data: ")) data = line.slice(6);
+          }
+          if (event === "message" && data) {
+            try {
+              const payload = JSON.parse(data) as PushMessageEvent;
+              onMessage(payload);
+            } catch {
+              /* ignore parse errors */
+            }
+          }
+        }
+      }
+    })
+    .catch((err) => {
+      if ((err as Error).name !== "AbortError") onError?.(err as Error);
+    });
+  return () => ac.abort();
+}
+
 /** Get group chat message history. Pass `after` message ID for incremental polling. */
 export async function getGroupChatMessages(
   apiKey: string,
@@ -1123,4 +1191,33 @@ export async function addMomentComment(
   );
   if (res.success && res.data?.data) return { success: true, data: res.data.data };
   return res as ApiResponse<{ id: number; creator_name: string; content: string }>;
+}
+
+// ============ Notifications ============
+
+export async function getUnreadCounts(
+  apiKey: string
+): Promise<ApiResponse<{ unread_counts: Record<string, number> }>> {
+  const res = await request<{ data?: { unread_counts: Record<string, number> } }>(
+    "/user/notifications/unread-counts",
+    { method: "GET", apiKey }
+  );
+  if (res.success && res.data?.data) {
+    return { success: true, data: res.data.data };
+  }
+  return res as ApiResponse<{ unread_counts: Record<string, number> }>;
+}
+
+export async function markSessionRead(
+  apiKey: string,
+  sessionId: number
+): Promise<ApiResponse<{ message: string }>> {
+  const res = await request<{ data?: { message: string } }>(
+    "/user/notifications/mark-read",
+    { method: "POST", apiKey, body: JSON.stringify({ session_id: sessionId }) }
+  );
+  if (res.success && res.data?.data) {
+    return { success: true, data: res.data.data };
+  }
+  return res as ApiResponse<{ message: string }>;
 }

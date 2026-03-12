@@ -14,6 +14,7 @@ export interface SidebarChatEntry {
   lastMessageAt?: string;
   createdAt?: string;
   messageCount: number;
+  unreadCount?: number;
 }
 
 interface ChatListItemProps {
@@ -64,9 +65,16 @@ const ChatListItem: React.FC<ChatListItemProps> = ({ chat, isActive, onClick }) 
         </div>
       )}
       <div className="flex-1 min-w-0">
-        <div className="flex justify-between items-baseline text-theme-text">
+        <div className="flex justify-between items-center text-theme-text">
           <h3 className={`text-sm truncate ${isActive ? 'font-bold' : ''}`}>{chat.name}</h3>
-          {timeStr && <span className="text-[10px] opacity-60 shrink-0 ml-2">{timeStr}</span>}
+          <div className="flex items-center gap-1.5 shrink-0 ml-2">
+            {timeStr && <span className="text-[10px] opacity-60">{timeStr}</span>}
+            {!isActive && chat.unreadCount != null && chat.unreadCount > 0 && (
+              <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white bg-red-500 rounded-full leading-none">
+                {chat.unreadCount > 99 ? '99+' : chat.unreadCount}
+              </span>
+            )}
+          </div>
         </div>
         <p className="text-xs opacity-50 truncate mt-0.5">
           {chat.lastMessagePreview || (chat.messageCount > 0 ? '...' : '')}

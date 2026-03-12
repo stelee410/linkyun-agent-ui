@@ -970,6 +970,38 @@ export async function getSessionMessages(apiKey: string, sessionId: number) {
   );
 }
 
+/** 主动推送消息（创作者评论等） */
+export interface PushMessageParams {
+  user_id: number;
+  creator_id?: number;
+  group_id?: number;
+  session_id?: number;
+  sender_agent_id: number;
+  sender_name?: string;
+  content: string;
+  content_type?: string;
+}
+
+export async function pushMessage(
+  apiKey: string,
+  params: PushMessageParams
+): Promise<ApiResponse<{ message_id: string; session_id: number }>> {
+  return request<{ message_id: string; session_id: number }>("/user/push-messages", {
+    method: "POST",
+    apiKey,
+    body: JSON.stringify({
+      user_id: params.user_id,
+      creator_id: params.creator_id,
+      group_id: params.group_id,
+      session_id: params.session_id,
+      sender_agent_id: params.sender_agent_id,
+      sender_name: params.sender_name,
+      content: params.content,
+      content_type: params.content_type ?? "text",
+    }),
+  });
+}
+
 // ============ Messages ============
 
 /** 发送消息时的附件，对应 docs/widget_protocol.md 5.3 */

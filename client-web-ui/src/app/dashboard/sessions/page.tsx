@@ -12,6 +12,7 @@ import {
   updateSessionPrompt,
   getUserAgentPrompt,
   setUserAgentPrompt,
+  pushMessage,
   getAgentAvatar,
   type Agent,
   type Session,
@@ -39,6 +40,8 @@ export default function SessionsPage() {
   const [verifying, setVerifying] = useState(false);
   const [sessionPromptModalOpen, setSessionPromptModalOpen] = useState(false);
   const [userPromptModalOpen, setUserPromptModalOpen] = useState(false);
+  const [creatorComment, setCreatorComment] = useState("");
+  const [sendingComment, setSendingComment] = useState(false);
 
   const loadAgents = useCallback(async () => {
     if (!auth?.apiKey) return;
@@ -161,6 +164,51 @@ export default function SessionsPage() {
       setError("保存失败");
     } finally {
       setSavingSessionPrompt(false);
+    }
+  };
+
+  const handleSendCreatorComment = async () => {
+    const text = creatorComment.trim();
+    if (!text || !auth?.apiKey || !selectedSession) return;
+    setSendingComment(true);
+    setError("");
+    try {
+      const content = `[创作者评论] ${text}`;
+      const params = {
+        user_id: selectedSession.user_id,
+        sender_agent_id: selectedSession.agent_id,
+        sender_name: "创作者",
+        content,
+      };
+      if (selectedSession.is_group) {
+        (params as Record<string, unknown>).group_id = selectedSession.id;
+      } else {
+        (params as Record<string, unknown>).session_id = selectedSession.id;
+      }
+      const res = await pushMessage(auth.apiKey, params as Parameters<typeof pushMessage>[1]);
+      if (res.success) {
+        setCreatorComment("");
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now(),
+            uuid: (res.data as { message_id: string }).message_id,
+            session_id: selectedSession.id,
+            role: "assistant",
+            content,
+            content_type: "text",
+            sender_agent_id: selectedSession.agent_id,
+            sender_name: "创作者",
+            created_at: new Date().toISOString(),
+          } as Message,
+        ]);
+      } else {
+        setError(res.error?.message ?? "发送失败");
+      }
+    } catch {
+      setError("发送失败");
+    } finally {
+      setSendingComment(false);
     }
   };
 
@@ -345,12 +393,14 @@ export default function SessionsPage() {
               </button>
             )}
           </div>
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex-1 overflow-y-auto p-4 flex flex-col min-h-0">
             {!selectedSession ? (
-              <div className="flex items-center justify-center h-full text-text-secondary text-sm">
+              <div className="flex items-center justify-center flex-1 text-text-secondary text-sm">
                 选择会话以查看聊天记录
               </div>
-            ) : messages.length === 0 ? (
+            ) : (
+              <>
+            {messages.length === 0 ? (
               <div className="flex items-center justify-center h-full text-text-secondary text-sm">
                 暂无消息
               </div>
@@ -381,6 +431,34 @@ export default function SessionsPage() {
                     );
                   })}
               </div>
+            )}
+
+            {/* 创作者评论输入 */}
+            {selectedSession && (
+              <div className="mt-4 pt-4 border-t border-border shrink-0">
+                <label className="block text-xs font-medium text-text-secondary mb-2">创作者评论（将推送至用户）</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={creatorComment}
+                    onChange={(e) => setCreatorComment(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSendCreatorComment()}
+                    placeholder="输入评论，将作为 [创作者评论] 推送给用户"
+                    disabled={sendingComment}
+                    className="flex-1 px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text-primary placeholder-text-secondary focus:ring-2 focus:ring-primary focus:outline-none disabled:opacity-50"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSendCreatorComment}
+                    disabled={!creatorComment.trim() || sendingComment}
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-primary text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                  >
+                    {sendingComment ? "发送中..." : "发送"}
+                  </button>
+                </div>
+              </div>
+            )}
+              </>
             )}
           </div>
         </div>
