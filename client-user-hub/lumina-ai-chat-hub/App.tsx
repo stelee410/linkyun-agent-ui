@@ -404,6 +404,7 @@ const AppContent: React.FC = () => {
           sender_agent_id: ev.sender_agent_id ?? null,
           sender_name: ev.sender_name ?? null,
           created_at: new Date().toISOString(),
+          attachments: ev.attachments,
         };
         setChatMessages((prev) => {
           const curr = prev[chatKey] || [];
@@ -744,6 +745,20 @@ const AppContent: React.FC = () => {
                     : c
                 )
               );
+              // 流式结束后，重新拉取完整消息（含 attachments），以获取 Skill 生成的文件附件
+              getUserChatMessages(auth.apiKey, chatId, 5).then((res) => {
+                if (res.success && res.data?.messages) {
+                  const fullMsg = res.data.messages.find((m) => m.uuid === messageId);
+                  if (fullMsg) {
+                    setChatMessages((prev) => ({
+                      ...prev,
+                      [chatKey]: (prev[chatKey] || []).map((m) =>
+                        m.uuid === messageId ? { ...m, attachments: fullMsg.attachments } : m
+                      ),
+                    }));
+                  }
+                }
+              });
             },
           });
         };

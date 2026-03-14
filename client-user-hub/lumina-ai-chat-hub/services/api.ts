@@ -522,7 +522,7 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   content_type: string;
-  attachments?: { type: string; token?: string; url?: string }[];
+  attachments?: { type: string; token?: string; url?: string; download_url?: string; preview_url?: string; name?: string; size?: number; mime_type?: string }[];
   metadata?: { audio_url?: string; [k: string]: unknown };
   audio_url?: string;
   sender_agent_id?: number | null;
@@ -951,6 +951,7 @@ export interface PushMessageEvent {
   sender_agent_id?: number;
   sender_name?: string | null;
   content_type?: string;
+  attachments?: { type: string; token?: string; url?: string; download_url?: string; preview_url?: string; name?: string; size?: number; mime_type?: string }[];
 }
 
 /**
