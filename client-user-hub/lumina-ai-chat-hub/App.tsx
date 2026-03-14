@@ -445,7 +445,7 @@ const AppContent: React.FC = () => {
   const loadChatMessages = useCallback(
     async (chatKey: string) => {
       const auth = getAuth();
-      if (!auth || chatMessages[chatKey]) return;
+      if (!auth) return;
       setLoadingChat(true);
       let res;
       if (chatKey.startsWith('group-')) {
@@ -459,7 +459,7 @@ const AppContent: React.FC = () => {
         setChatMessages((prev) => ({ ...prev, [chatKey]: res.data!.messages }));
       }
     },
-    [chatMessages]
+    []
   );
 
   const createChat = async (aiId: string) => {
@@ -882,7 +882,7 @@ const AppContent: React.FC = () => {
         onSelectChat={(key) => {
           setActiveChatId(key);
           navigateToView('messages');
-          if (!chatMessages[key]) loadChatMessages(key);
+          loadChatMessages(key);
           // Mark session as read and clear local unread count
           if (unreadCounts[key] || unreadCounts[`group-${key}`]) {
             const sessionId = key.startsWith('group-') ? Number(key.replace('group-', '')) : Number(key);
