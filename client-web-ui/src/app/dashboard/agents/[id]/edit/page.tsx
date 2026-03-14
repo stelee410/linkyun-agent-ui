@@ -27,6 +27,7 @@ import {
   type AgentPostSkill,
   type AgentMidSkill,
   type AgentPreSkill,
+  getMarketplaceSkill,
   listAgentMoments,
   deleteMoment,
   addMomentComment,
@@ -220,6 +221,101 @@ function MidSkillConfigModal({
           >
             确定
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 技能调用提示词编辑弹窗：按 Agent 覆盖传给 LLM 的 tool description（何时调用此技能） */
+function ToolDescriptionModal({
+  apiKey,
+  skillId,
+  skillName,
+  initialValue,
+  onSave,
+  onClose,
+}: {
+  apiKey: string;
+  skillId: number;
+  skillName: string;
+  /** 当前展示值：用户自定义覆盖优先，否则为全局预置 */
+  initialValue: string;
+  onSave: (value: string) => void;
+  onClose: () => void;
+}) {
+  const [value, setValue] = useState(initialValue);
+  const [resetting, setResetting] = useState(false);
+  useEffect(() => setValue(initialValue), [initialValue]);
+
+  const fetchDefault = async () => {
+    const res = await getMarketplaceSkill(apiKey, skillId);
+    if (res.success && res.data) {
+      // 优先使用 description_for_llm（给 LLM 的中文说明），其次 default_tool_description
+      return res.data.description_for_llm || res.data.default_tool_description || "";
+    }
+    return "";
+  };
+
+  // 弹窗打开时：若无自定义值，自动从后端加载系统默认
+  useEffect(() => {
+    if (initialValue) return;
+    setResetting(true);
+    fetchDefault().then((def) => {
+      if (def) setValue(def);
+    }).finally(() => setResetting(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleReset = async () => {
+    setResetting(true);
+    try {
+      const def = await fetchDefault();
+      if (def) setValue(def);
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} aria-hidden />
+      <div
+        className="relative z-10 w-full max-w-lg rounded-xl bg-surface border border-border p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-medium text-text-primary mb-1">调用提示词 - {skillName}</h3>
+        <p className="text-sm text-text-secondary mb-3">
+          自定义此 Agent 下该技能的「何时调用」说明，将传给大模型。未自定义则使用系统默认，可修改后保存。
+        </p>
+        <textarea
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="请输入何时调用此技能的说明…"
+          rows={6}
+          className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-border rounded-lg text-text-primary placeholder-text-secondary focus:ring-2 focus:ring-primary focus:border-transparent focus:outline-none text-sm resize-y"
+        />
+        <div className="flex justify-between mt-4">
+          <button
+            type="button"
+            onClick={handleReset}
+            disabled={resetting}
+            className="px-4 py-2 text-text-secondary hover:text-text-primary text-sm disabled:opacity-50"
+          >
+            {resetting ? "加载中…" : "恢复默认"}
+          </button>
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-text-secondary hover:text-text-primary">
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={() => onSave(value.trim())}
+              className="px-4 py-2 bg-primary text-white rounded-lg hover:opacity-90"
+            >
+              确定
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -715,6 +811,13 @@ export default function AgentEditPage() {
     creatorSkillId: number;
     skillName: string;
     rolePrompt: string;
+  } | null>(null);
+  const [toolDescriptionModal, setToolDescriptionModal] = useState<{
+    creatorSkillId: number;
+    skillId: number;
+    skillName: string;
+    toolDescription: string;
+    defaultToolDescription: string;
   } | null>(null);
   const [midSkillGenericConfigModal, setMidSkillGenericConfigModal] = useState<{
     creatorSkillId: number;
@@ -1360,6 +1463,36 @@ export default function AgentEditPage() {
             </div>
           </div>
 
+          {/* 不在 Discover 显示 */}
+          <div className="px-4 py-3 border-b border-border">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-sm text-text-primary">不在 Discover 显示</span>
+                <p className="text-xs text-text-secondary mt-0.5">
+                  开启后，Agent 不会出现在 lumina-ai-chat-hub 的 Discover 列表中，但 API 调用不受影响
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!auth?.apiKey || !agent) return;
+                  const next = !(agent.hidden ?? false);
+                  const res = await updateAgent(auth.apiKey, agentId, { hidden: next });
+                  if (res.success && res.data) setAgent(res.data);
+                }}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  (agent.hidden ?? false) ? 'bg-primary' : 'bg-slate-300 dark:bg-slate-600'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    (agent.hidden ?? false) ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
           {/* 知识库绑定 */}
           <div className="px-4 py-3 border-b border-border">
             <div>
@@ -1977,6 +2110,66 @@ export default function AgentEditPage() {
                     );
                   })()}
 
+                  {/* LLM API Key 单独配置（覆盖系统） */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-text-primary">LLM API Key（可选）</label>
+                    <p className="text-xs text-text-secondary">
+                      单独设置后覆盖系统配置，该 Agent 的 LLM 调用将使用此 Key
+                    </p>
+                    {(agent.llm_api_key_configured ?? false) ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-green-600 dark:text-green-400">✓ 已单独设置</span>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!auth?.apiKey || !agent) return;
+                            const res = await updateAgent(auth.apiKey, Number(agent.id), { llm_api_key: "" });
+                            if (res.success && res.data) setAgent(res.data);
+                          }}
+                          className="text-xs px-2 py-1 text-text-secondary hover:text-text-primary hover:bg-slate-200 dark:hover:bg-slate-700 rounded"
+                        >
+                          清除
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <input
+                          type="password"
+                          id="llm-api-key-input"
+                          placeholder="输入 API Key 覆盖系统配置"
+                          className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-1 focus:ring-primary"
+                          onKeyDown={async (e) => {
+                            if (e.key !== "Enter") return;
+                            const el = document.getElementById("llm-api-key-input") as HTMLInputElement;
+                            const val = el?.value?.trim() ?? "";
+                            if (!auth?.apiKey || !agent || !val) return;
+                            const res = await updateAgent(auth.apiKey, Number(agent.id), { llm_api_key: val });
+                            if (res.success && res.data) {
+                              setAgent(res.data);
+                              el.value = "";
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const el = document.getElementById("llm-api-key-input") as HTMLInputElement;
+                            const val = el?.value?.trim() ?? "";
+                            if (!auth?.apiKey || !agent || !val) return;
+                            const res = await updateAgent(auth.apiKey, Number(agent.id), { llm_api_key: val });
+                            if (res.success && res.data) {
+                              setAgent(res.data);
+                              el.value = "";
+                            }
+                          }}
+                          className="px-3 py-2 text-sm bg-primary text-white rounded-lg hover:opacity-90"
+                        >
+                          保存
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
                   {/* 能力提示信息 */}
                   {agent.llm_provider && (() => {
                     const selectedProvider = llmProviders.find((p) => p.name === agent.llm_provider);
@@ -2166,6 +2359,10 @@ export default function AgentEditPage() {
                       const checked = !!sel;
                       const hasConfig = !!(cs.config_schema?.properties && Object.keys(cs.config_schema.properties).length > 0);
                       const canConfig = checked && (cs.skill_name === "role_reinforcement" || hasConfig);
+                      // prompt-api 型技能支持按 Agent 编辑调用提示词；implementation_type 可能未返回时用 skill_name 兜底
+                      const PROMPT_API_SKILL_NAMES = ["create_docx", "minimaxi_tts", "weather_api"];
+                      const isPromptApi = cs.implementation_type === "prompt-api" || (!!cs.skill_name && PROMPT_API_SKILL_NAMES.includes(cs.skill_name));
+                      const canEditToolDesc = checked && isPromptApi;
                       const needsAttention = checked && (
                         (cs.skill_name === "role_reinforcement" && !String(sel?.config?.role_prompt || "").trim()) ||
                         (cs.skill_name !== "role_reinforcement" && hasConfig && (cs.config_schema?.required || []).some((k: string) => {
@@ -2202,7 +2399,7 @@ export default function AgentEditPage() {
                               )}
                             </div>
                           </div>
-                          <div className="flex items-center justify-end gap-3 mt-2 pt-1.5 border-t border-border">
+                          <div className="flex items-center justify-end gap-3 mt-2 pt-1.5 border-t border-border flex-wrap">
                             <button
                               type="button"
                               onClick={() => handleDeleteCreatorSkill(cs.id, cs.stage)}
@@ -2210,6 +2407,21 @@ export default function AgentEditPage() {
                             >
                               删除
                             </button>
+                            {canEditToolDesc && (
+                              <button
+                                type="button"
+                                onClick={() => setToolDescriptionModal({
+                                  creatorSkillId: cs.id,
+                                  skillId: cs.skill_id,
+                                  skillName: cs.name,
+                                  toolDescription: String(sel?.config?.tool_description ?? cs.default_tool_description ?? ""),
+                                  defaultToolDescription: String(cs.default_tool_description ?? ""),
+                                })}
+                                className="text-[11px] text-primary hover:opacity-80"
+                              >
+                                调用提示词
+                              </button>
+                            )}
                             <button
                               type="button"
                               disabled={!canConfig}
@@ -2428,6 +2640,33 @@ export default function AgentEditPage() {
             setMidSkillConfigModal(null);
           }}
           onClose={() => setMidSkillConfigModal(null)}
+        />
+      )}
+
+      {/* 技能调用提示词弹窗（按 Agent 覆盖 tool_description，适用于 create_docx、minimaxi_tts、weather_api 等 prompt-api 技能） */}
+      {toolDescriptionModal && (
+        <ToolDescriptionModal
+          apiKey={auth!.apiKey}
+          skillId={toolDescriptionModal.skillId}
+          skillName={toolDescriptionModal.skillName}
+          initialValue={toolDescriptionModal.toolDescription}
+          onSave={(toolDescription) => {
+            const next = selectedMidSkills.map((p) => {
+              if (p.creator_skill_id !== toolDescriptionModal.creatorSkillId) return p;
+              const newConfig = { ...p.config };
+              // 与系统默认相同或为空时，清除覆盖，使用系统默认
+              if (toolDescription && toolDescription !== toolDescriptionModal.defaultToolDescription) {
+                newConfig.tool_description = toolDescription;
+              } else {
+                delete newConfig.tool_description;
+              }
+              return { ...p, config: newConfig };
+            });
+            setSelectedMidSkills(next);
+            saveMidSkillsToDb(next);
+            setToolDescriptionModal(null);
+          }}
+          onClose={() => setToolDescriptionModal(null)}
         />
       )}
 

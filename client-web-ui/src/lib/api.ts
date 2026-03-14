@@ -61,6 +61,8 @@ export interface Agent {
   edge_status: 'offline' | 'online';
   edge_token?: string;
   memory_enabled: boolean;
+  hidden?: boolean;
+  llm_api_key_configured?: boolean;
   knowledge_base_id?: number | null;
   version: number;
   system_prompt?: string;
@@ -373,6 +375,7 @@ export interface SendMessageResponse {
   model: string;
   usage?: { input_tokens: number; output_tokens: number; total_tokens: number };
   audio_url?: string;
+  docx_url?: string;
   /** 回复中附带的图片链接（引用用户消息的附件） */
   attachments?: MessageAttachment[];
 }
@@ -593,6 +596,8 @@ export async function updateAgent(
     skills?: string[];
     agent_type?: 'cloud' | 'edge';
     memory_enabled?: boolean;
+    hidden?: boolean;
+    llm_api_key?: string | null;
     knowledge_base_id?: number | null;
     llm_provider?: string;
     llm_temperature?: number | null;
@@ -611,6 +616,8 @@ export async function updateAgent(
   if (data.skills != null) body.skills = data.skills;
   if (data.agent_type != null) body.agent_type = data.agent_type;
   if (data.memory_enabled != null) body.memory_enabled = data.memory_enabled;
+  if (data.hidden != null) body.hidden = data.hidden;
+  if (data.llm_api_key !== undefined) body.llm_api_key = data.llm_api_key;
   if (data.knowledge_base_id !== undefined) body.knowledge_base_id = data.knowledge_base_id;
   if (data.llm_provider !== undefined) body.llm_provider = data.llm_provider;
   if (data.llm_temperature !== undefined) body.llm_temperature = data.llm_temperature;
@@ -645,6 +652,8 @@ export interface MarketplaceSkill {
   name: string;
   description: string;
   description_for_llm?: string | null;
+  /** 从 skill_definition.description 解析，用于「恢复默认」调用提示词 */
+  default_tool_description?: string;
   config_doc?: string | null;
   stage: string;
   implementation_type: string;
@@ -676,6 +685,10 @@ export interface CreatorSkill {
   skill_name?: string;
   /** pre_conversation | mid_conversation | post_conversation */
   stage?: string;
+  /** function | prompt-based | prompt-api | prompt-tool，用于判断是否支持按 Agent 编辑调用提示词 */
+  implementation_type?: string;
+  /** 技能默认的 tool description（来自 skill_definition），用于编辑时的默认展示和一键恢复 */
+  default_tool_description?: string;
   name: string;
   config: Record<string, unknown>;
   config_schema?: { properties?: Record<string, { type?: string; description?: string; default?: unknown; enum?: string[] }>; required?: string[] };

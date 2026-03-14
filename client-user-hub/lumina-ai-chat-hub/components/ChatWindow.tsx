@@ -246,6 +246,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
 
   const prevMessagesRef = useRef<{ id: string; text: string; isAI: boolean }[]>([]);
   const prevChatIdRef = useRef<string | null>(null);
+  const isComposingRef = useRef(false);
 
   // 滚动到底部：首次进入、用户发送、服务器返回非空内容；服务器返回空内容时不滚动
   useEffect(() => {
@@ -1015,8 +1016,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
             rows={1}
             value={input}
             onChange={(e) => handleInputChange(e.target.value)}
+            onCompositionStart={() => { isComposingRef.current = true; }}
+            onCompositionEnd={() => { setTimeout(() => { isComposingRef.current = false; }, 0); }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
+              if (e.key === 'Enter' && !e.shiftKey && !isComposingRef.current) {
                 e.preventDefault();
                 handleSend();
               }
@@ -1110,7 +1113,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
               {supportsDocumentUpload && <DocumentUploadButton apiKey={apiKey} attachment={pendingDocument} onUploaded={(a) => { setUploadError(null); setPendingDocument(a); }} onClear={() => setPendingDocument(null)} onError={setUploadError} disabled={sending} />}
             </div>
           )}
-          <textarea ref={inputRef} className="flex-1 min-h-[2.5rem] bg-transparent border-none focus:ring-0 py-2.5 lg:py-3 resize-none max-h-32 lg:max-h-40 placeholder:opacity-40 text-sm custom-scrollbar" placeholder={chat.participants.length > 1 ? t.chat.inputPlaceholderGroup : t.chat.inputPlaceholder} rows={1} value={input} onChange={(e) => handleInputChange(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }} />
+          <textarea ref={inputRef} className="flex-1 min-h-[2.5rem] bg-transparent border-none focus:ring-0 py-2.5 lg:py-3 resize-none max-h-32 lg:max-h-40 placeholder:opacity-40 text-sm custom-scrollbar" placeholder={chat.participants.length > 1 ? t.chat.inputPlaceholderGroup : t.chat.inputPlaceholder} rows={1} value={input} onChange={(e) => handleInputChange(e.target.value)} onCompositionStart={() => { isComposingRef.current = true; }} onCompositionEnd={() => { setTimeout(() => { isComposingRef.current = false; }, 0); }} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !isComposingRef.current) { e.preventDefault(); handleSend(); } }} />
           <div className="flex gap-0.5 p-0.5">
             <button type="button" onClick={() => setShowEmojiPicker((v) => !v)} className={`p-2 transition-colors ${showEmojiPicker ? 'text-primary opacity-100' : 'opacity-50 hover:text-primary hover:opacity-100'}`} title="表情" aria-label="选择表情"><span className="material-symbols-outlined text-xl">mood</span></button>
             <button onClick={handleSend} disabled={sending || (!input.trim() && !pendingImage && !pendingDocument)} className="bg-primary text-white p-2 rounded-xl flex items-center justify-center shadow-lg shadow-primary/20 hover:opacity-90 active:scale-95 transition-all shrink-0 disabled:opacity-50 disabled:cursor-not-allowed" title="发送"><span className="material-symbols-outlined font-bold text-xl lg:text-2xl">send</span></button>
