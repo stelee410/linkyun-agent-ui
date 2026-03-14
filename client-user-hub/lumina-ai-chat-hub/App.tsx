@@ -33,6 +33,7 @@ import {
   getAgentAvatarUrlForFilename,
   listGroupChats,
   createGroupChat as createGroupChatApi,
+  upgradeToGroupChat,
   sendGroupMessage,
   getGroupChatMessages,
   subscribeToPushEvents,
@@ -381,6 +382,24 @@ const AppContent: React.FC = () => {
     return () => { cancelled = true; clearTimeout(timer); };
   }, [groupPolling]);
 
+  // Clear unread count whenever the active chat changes
+  useEffect(() => {
+    if (!activeChatId || view !== 'messages') return;
+    const sessionId = activeChatId.startsWith('group-')
+      ? Number(activeChatId.replace('group-', ''))
+      : Number(activeChatId);
+    if (!sessionId || Number.isNaN(sessionId)) return;
+    const auth = getAuth();
+    if (!auth) return;
+    setUnreadCounts((prev) => {
+      if (!prev[String(sessionId)]) return prev;
+      const next = { ...prev };
+      delete next[String(sessionId)];
+      return next;
+    });
+    markSessionRead(auth.apiKey, sessionId);
+  }, [activeChatId, view]);
+
   // SSE subscription for real-time push messages when viewing a chat
   useEffect(() => {
     if (view !== 'messages' || !activeChatId) return;
@@ -412,6 +431,14 @@ const AppContent: React.FC = () => {
           if (exists) return prev;
           return { ...prev, [chatKey]: [...curr, cm] };
         });
+        // User is actively viewing this chat — clear unread count immediately
+        setUnreadCounts((prev) => {
+          if (!prev[String(sessionId)]) return prev;
+          const next = { ...prev };
+          delete next[String(sessionId)];
+          return next;
+        });
+        markSessionRead(auth.apiKey, sessionId);
       },
       () => { /* ignore reconnect handled by cleanup */ }
     );
@@ -523,15 +550,19 @@ const AppContent: React.FC = () => {
         }
       }
     } else {
-      // 1v1 chat: 仅当添加了新参与者（>=2 人）时，创建全新的 group chat，与当前 1v1 隔开
-      // 当前 1v1 保持不变，不就地升级；新群聊为独立 session
+      // 1v1 chat: when new agents are added, upgrade to a group chat and copy history
       if (aiIds.length >= 2) {
         setLoadingChat(true);
         const titleForGroup = newTitle?.trim() || activeChat?.title?.trim() || undefined;
-        const agentIds = aiIds.map((id) =>
-          typeof id === 'string' && id.startsWith('agent-') ? parseInt(id.slice(6), 10) : Number(id)
-        ).filter((n) => !isNaN(n));
-        const res = await createGroupChatApi(auth.apiKey, agentIds, titleForGroup, titleForGroup);
+        // Use agent_id from the 1v1 session to identify the original agent
+        const src1v1 = chats.find((c) => String(c.id) === chatId);
+        const originalAgentId = src1v1?.agent_id ?? null;
+        const newAgentIds = aiIds
+          .map((id) => typeof id === 'string' && id.startsWith('agent-') ? parseInt(id.slice(6), 10) : Number(id))
+          .filter((n) => !isNaN(n) && n !== originalAgentId);
+
+        const sourceSessionId = Number(chatId);
+        const res = await upgradeToGroupChat(auth.apiKey, sourceSessionId, newAgentIds, titleForGroup);
         setLoadingChat(false);
         if (res.success && res.data) {
           const gc = res.data;
@@ -884,13 +915,16 @@ const AppContent: React.FC = () => {
           navigateToView('messages');
           loadChatMessages(key);
           // Mark session as read and clear local unread count
-          if (unreadCounts[key] || unreadCounts[`group-${key}`]) {
-            const sessionId = key.startsWith('group-') ? Number(key.replace('group-', '')) : Number(key);
-            if (sessionId > 0) {
-              const auth = getAuth();
-              if (auth) markSessionRead(auth.apiKey, sessionId);
-              setUnreadCounts((prev) => { const next = { ...prev }; delete next[String(sessionId)]; return next; });
-            }
+          const sessionId = key.startsWith('group-') ? Number(key.replace('group-', '')) : Number(key);
+          if (sessionId > 0) {
+            const auth = getAuth();
+            if (auth) markSessionRead(auth.apiKey, sessionId);
+            setUnreadCounts((prev) => {
+              if (!prev[String(sessionId)]) return prev;
+              const next = { ...prev };
+              delete next[String(sessionId)];
+              return next;
+            });
           }
         }} 
         onUpdateUser={setCurrentUser}

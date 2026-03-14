@@ -887,6 +887,25 @@ export async function createGroupChat(
   return res as ApiResponse<GroupChatSession>;
 }
 
+/** Upgrade a 1v1 chat to a group chat, copying history into the new session */
+export async function upgradeToGroupChat(
+  apiKey: string,
+  chatId: number,
+  agentIds: number[],
+  title?: string
+): Promise<ApiResponse<GroupChatSession>> {
+  const body: { agent_ids: number[]; title?: string } = { agent_ids: agentIds };
+  if (title) body.title = title;
+  const res = await request<{ data?: GroupChatSession }>(
+    `/user/chats/${chatId}/upgrade-to-group`,
+    { method: "POST", apiKey, body: JSON.stringify(body) }
+  );
+  if (res.success && res.data?.data) {
+    return { success: true, data: res.data.data };
+  }
+  return res as ApiResponse<GroupChatSession>;
+}
+
 /** List group chat sessions */
 export async function listGroupChats(
   apiKey: string,

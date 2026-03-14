@@ -560,15 +560,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
                   />
                 </div>
               </div>
-              {chat.isGroup && (
+              {/* For group chats: show all participants with add/remove controls */}
+              {chat.isGroup && (friendAgents ?? []).length > 0 && (
               <div>
                 <p className="px-2 text-[10px] font-bold opacity-50 uppercase tracking-widest mb-3">{t.chat.inChat}</p>
                 <div className="flex flex-col gap-2">
                   {(friendAgents ?? AI_HUMANS).map((ai) => {
                     const rawId = 'id' in ai ? ai.id : (ai as AIDigitalHuman).id;
                     const id = String(rawId);
-                    // Group chat uses "agent-{id}" in participants; friendAgents use numeric id
-                    const participantId = chat.isGroup ? `agent-${rawId}` : id;
+                    const participantId = `agent-${rawId}`;
                     const name = ai.name ?? (ai as AIDigitalHuman).name ?? '';
                     const avatar = 'avatar' in ai && typeof (ai as AIDigitalHuman).avatar === 'string'
                       ? (ai as AIDigitalHuman).avatar
@@ -584,7 +584,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
                           <p className="font-bold text-sm truncate">{name}</p>
                           <p className="text-[10px] opacity-60 truncate">{subtitle}</p>
                         </div>
-                        {chat.isGroup && isActive && (() => {
+                        {isActive && (() => {
                           const pIdx = tempParticipants.findIndex((p) => p === participantId || p === id);
                           return (
                             <div className="flex flex-col shrink-0">
@@ -599,9 +599,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
                         })()}
                         <button
                           type="button"
-                          onClick={() => toggleTempParticipant(chat.isGroup ? participantId : id)}
-                          disabled={chat.isGroup && isActive && tempParticipants.length <= 1}
-                          title={chat.isGroup && isActive && tempParticipants.length <= 1 ? (t.chat as { minOneParticipant?: string }).minOneParticipant : undefined}
+                          onClick={() => toggleTempParticipant(participantId)}
+                          disabled={isActive && tempParticipants.length <= 1}
+                          title={isActive && tempParticipants.length <= 1 ? (t.chat as { minOneParticipant?: string }).minOneParticipant : undefined}
                           className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${isActive ? 'bg-primary text-white' : 'bg-surface-dark text-slate-400 hover:bg-surface-dark/80'} disabled:opacity-50 disabled:cursor-not-allowed`}
                         >
                           {isActive ? t.chat.remove : t.chat.add}
@@ -612,6 +612,64 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
                 </div>
               </div>
               )}
+              {/* For 1v1 chats: invite OTHER agents (excluding current) to upgrade to group chat */}
+              {!chat.isGroup && (() => {
+                const otherAgents = (friendAgents ?? []).filter((ai) => {
+                  const rawId = 'id' in ai ? ai.id : (ai as AIDigitalHuman).id;
+                  const agentKey = `agent-${rawId}`;
+                  return !chat.participants.includes(agentKey) && !chat.participants.includes(String(rawId));
+                });
+                return (
+                  <div>
+                    <p className="px-2 text-[10px] font-bold opacity-50 uppercase tracking-widest mb-3">
+                      {(t.chat as { inviteToGroup?: string }).inviteToGroup}
+                    </p>
+                    {tempParticipants.length >= 2 && (
+                      <div className="mb-3 px-3 py-2 rounded-xl bg-primary/10 border border-primary/30 text-xs text-primary/80">
+                        <span className="material-symbols-outlined text-sm align-middle mr-1">group_add</span>
+                        {(t.chat as { upgradeHint?: string }).upgradeHint}
+                      </div>
+                    )}
+                    {otherAgents.length === 0 ? (
+                      <div className="px-3 py-4 rounded-2xl bg-background-dark/30 border border-dashed border-border-dark text-center">
+                        <span className="material-symbols-outlined text-2xl opacity-30 mb-1 block">person_add</span>
+                        <p className="text-xs opacity-50">{(t.chat as { noOtherFriends?: string }).noOtherFriends ?? 'Add more Agent friends to create a group chat'}</p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {otherAgents.map((ai) => {
+                          const rawId = 'id' in ai ? ai.id : (ai as AIDigitalHuman).id;
+                          const id = String(rawId);
+                          const name = ai.name ?? (ai as AIDigitalHuman).name ?? '';
+                          const avatar = 'avatar' in ai && typeof (ai as AIDigitalHuman).avatar === 'string'
+                            ? (ai as AIDigitalHuman).avatar
+                            : getAgentAvatarUrl(ai as DiscoverAgent);
+                          const subtitle = (ai as AIDigitalHuman).title ?? (ai as DiscoverAgent).description ?? (ai as DiscoverAgent).code ?? '';
+                          const isActive = tempParticipants.includes(id) || tempParticipants.includes(`agent-${rawId}`);
+                          return (
+                            <div key={id} className="flex items-center gap-3 p-2 lg:p-3 rounded-2xl bg-background-dark/30 hover:bg-background-dark/50 border border-transparent hover:border-border-dark transition-all">
+                              <div className="size-9 rounded-xl overflow-hidden shrink-0 border border-border-dark">
+                                <img src={avatar} alt={name} className="w-full h-full object-cover" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-bold text-sm truncate">{name}</p>
+                                <p className="text-[10px] opacity-60 truncate">{subtitle}</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => toggleTempParticipant(id)}
+                                className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${isActive ? 'bg-primary text-white' : 'bg-surface-dark text-slate-400 hover:bg-surface-dark/80'}`}
+                              >
+                                {isActive ? t.chat.remove : t.chat.add}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               {onDeleteMemory != null && (
                 <div className="p-3 rounded-2xl bg-background-dark/50 border border-amber-500/30">
                   {!showDeleteMemoryConfirm ? (

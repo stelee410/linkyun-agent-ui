@@ -1,5 +1,6 @@
 import React from "react";
 import { getBaseUrl } from "../services/api";
+import { AudioPlayer } from "./AudioPlayer";
 
 export interface MessageAttachment {
   type: string;
@@ -48,14 +49,30 @@ function formatSize(bytes?: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function getAudioUrl(att: MessageAttachment): string {
+  if (att.url) {
+    return att.url.startsWith("http") ? att.url : `${getBaseUrl()}${att.url}`;
+  }
+  if (att.download_url) {
+    return att.download_url.startsWith("http")
+      ? att.download_url
+      : `${getBaseUrl()}${att.download_url}`;
+  }
+  if (att.token) {
+    return `${getBaseUrl()}/api/v1/files/${att.token}/download`;
+  }
+  return "#";
+}
+
 export function MessageAttachments({
   attachments,
   isUser = false,
 }: MessageAttachmentsProps) {
   const imageAttachments = attachments.filter((a) => a.type === "image");
   const fileAttachments = attachments.filter((a) => a.type === "file");
+  const audioAttachments = attachments.filter((a) => a.type === "audio");
 
-  if (imageAttachments.length === 0 && fileAttachments.length === 0) return null;
+  if (imageAttachments.length === 0 && fileAttachments.length === 0 && audioAttachments.length === 0) return null;
 
   const linkClass = isUser
     ? "text-primary/90 hover:text-primary underline"
@@ -118,6 +135,11 @@ export function MessageAttachments({
               <span className={`text-xs ${mutedClass}`}>{formatSize(att.size)}</span>
             )}
           </div>
+        </div>
+      ))}
+      {audioAttachments.map((att, i) => (
+        <div key={`audio-${i}`} className="mt-1">
+          <AudioPlayer src={getAudioUrl(att)} />
         </div>
       ))}
     </div>
