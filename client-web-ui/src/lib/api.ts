@@ -1455,3 +1455,88 @@ export async function deleteMomentAutoSchedule(apiKey: string, agentId: number) 
 export async function getLLMProviders(apiKey: string): Promise<ApiResponse<LLMProvider[]>> {
   return request<LLMProvider[]>("/llm-providers", { apiKey });
 }
+
+// =========================================
+// User Events SSE（Edge 状态通知）
+// =========================================
+
+/** Edge 推送的状态通知事件 */
+export interface EdgeStatusEvent {
+  type: "edge_status";
+  subtype: "status" | "progress" | "info";
+  content: string;
+  metadata?: {
+    tool_name?: string;
+    skill_name?: string;
+    stage?: "pre_skill" | "tool_call" | "tool_done" | "post_skill";
+    [key: string]: unknown;
+  };
+}
+
+/**
+ * 订阅 GET /api/v1/user/events?session_id=xxx 的 SSE 推送
+ * 返回一个取消订阅的清理函数
+ */
+export function subscribeUserEvents(
+  apiKey: string,
+  sessionId: number,
+  callbacks: {
+    onEdgeStatus?: (event: EdgeStatusEvent) => void;
+    onError?: (err: Event) => void;
+  }
+): () => void {
+  const url = `${getBaseUrl()}/api/v1/user/events?session_id=${sessionId}`;
+  const eventSource = new EventSource(url, {
+    // EventSource 不支持自定义 Header，通过 URL 携带认证（需 cookie/token 方案）
+    // 此处使用已有 cookie-based auth 或兼容方案
+  } as EventSourceInit);
+
+  // 通过 fetch 建立带 Header 的 SSE 连接（绕过 EventSource 不支持 Header 的限制）
+  let abortController = new AbortController();
+  eventSource.close(); // 关闭标准 EventSource，改用 fetch SSE
+
+  (async () => {
+    try {
+      const res = await fetch(url, {
+        headers: { "X-API-Key": apiKey },
+        signal: abortController.signal,
+      });
+      if (!res.ok || !res.body) return;
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (!payload) continue;
+          try {
+            const evt = JSON.parse(payload);
+            if (evt.type === "edge_status" && callbacks.onEdgeStatus) {
+              callbacks.onEdgeStatus(evt as EdgeStatusEvent);
+            }
+          } catch {
+            // 忽略解析错误
+          }
+        }
+      }
+    } catch (err) {
+      if ((err as Error).name !== "AbortError" && callbacks.onError) {
+        callbacks.onError(err as Event);
+      }
+    }
+  })();
+
+  return () => {
+    abortController.abort();
+  };
+}

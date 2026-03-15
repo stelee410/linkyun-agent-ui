@@ -973,6 +973,19 @@ export interface PushMessageEvent {
   attachments?: { type: string; token?: string; url?: string; download_url?: string; preview_url?: string; name?: string; size?: number; mime_type?: string }[];
 }
 
+/** Edge 推送的工具调用状态通知事件 */
+export interface EdgeStatusEvent {
+  type: "edge_status";
+  subtype: "status" | "progress" | "info";
+  content: string;
+  metadata?: {
+    tool_name?: string;
+    skill_name?: string;
+    stage?: string;
+    [key: string]: unknown;
+  };
+}
+
 /**
  * Subscribe to push message events for a session via SSE.
  * Uses fetch (not EventSource) to support X-API-Key header.
@@ -982,7 +995,8 @@ export function subscribeToPushEvents(
   apiKey: string,
   sessionId: number,
   onMessage: (msg: PushMessageEvent) => void,
-  onError?: (err: Error) => void
+  onError?: (err: Error) => void,
+  onEdgeStatus?: (evt: EdgeStatusEvent) => void
 ): () => void {
   const url = `${getBaseUrl()}/api/v1/user/events?session_id=${sessionId}`;
   const ac = new AbortController();
@@ -1016,8 +1030,12 @@ export function subscribeToPushEvents(
           }
           if (event === "message" && data) {
             try {
-              const payload = JSON.parse(data) as PushMessageEvent;
-              onMessage(payload);
+              const payload = JSON.parse(data) as PushMessageEvent & { type?: string };
+              if (payload.type === "edge_status" && onEdgeStatus) {
+                onEdgeStatus(payload as unknown as EdgeStatusEvent);
+              } else {
+                onMessage(payload);
+              }
             } catch {
               /* ignore parse errors */
             }

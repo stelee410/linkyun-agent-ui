@@ -12,11 +12,13 @@ import {
   getSession,
   getAgentWidgets,
   resolvePendingAttachments,
+  subscribeUserEvents,
   getBaseUrl,
   type Agent,
   type Message,
   type PendingAttachment,
   type SendMessageAttachment,
+  type EdgeStatusEvent,
 } from "@/lib/api";
 import type { Attachment } from "@/lib/widgets";
 import { revokeBlobUrls } from "@/lib/widgets";
@@ -62,6 +64,8 @@ export default function ChatPage() {
   const [widgets, setWidgets] = useState<import("@/lib/widgets").WidgetSpec[]>([]);
   const [widgetAttachments, setWidgetAttachments] = useState<Record<string, Attachment[]>>({});
   const [widgetMetadata, setWidgetMetadata] = useState<Record<string, unknown>>({});
+  // Edge 状态通知：存储当前正在显示的状态文本（发送结束后自动清除）
+  const [edgeStatus, setEdgeStatus] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -75,6 +79,17 @@ export default function ChatPage() {
     } else {
       setLoading(false);
     }
+  }, [sessionId, auth?.apiKey]);
+
+  // 订阅 Edge 状态推送（当 session 是 Edge Agent 时接收工具调用进度）
+  useEffect(() => {
+    if (!sessionId || !auth?.apiKey) return;
+    const unsubscribe = subscribeUserEvents(auth.apiKey, sessionId, {
+      onEdgeStatus: (evt: EdgeStatusEvent) => {
+        setEdgeStatus(evt.content);
+      },
+    });
+    return unsubscribe;
   }, [sessionId, auth?.apiKey]);
 
   // 进入会话时获取 Widget 列表（需先有 agent_id）
@@ -265,6 +280,7 @@ export default function ChatPage() {
       setMessages((prev) => prev.filter((m) => m.id !== tempAssistantId));
     } finally {
       setSending(false);
+      setEdgeStatus(null);
       revokeBlobUrls(allAttachments);
       setWidgetAttachments({});
       setWidgetMetadata({});
@@ -404,6 +420,15 @@ export default function ChatPage() {
                   <span className="inline-block w-2 h-2 rounded-full bg-zinc-500 animate-pulse [animation-delay:0.2s]" />
                   <span className="inline-block w-2 h-2 rounded-full bg-zinc-500 animate-pulse [animation-delay:0.4s]" />
                   <span className="ml-1">正在调用大模型...</span>
+                </div>
+              </div>
+            )}
+            {/* Edge 状态通知气泡：显示 Skill/MCP 工具执行进度 */}
+            {edgeStatus && sending && (
+              <div className="flex justify-start">
+                <div className="px-3 py-1.5 rounded-lg bg-indigo-900/30 border border-indigo-700/40 text-indigo-300 text-xs flex items-center gap-2 max-w-xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse shrink-0" />
+                  <span className="truncate">{edgeStatus}</span>
                 </div>
               </div>
             )}

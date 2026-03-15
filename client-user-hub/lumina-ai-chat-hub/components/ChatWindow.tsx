@@ -16,6 +16,7 @@ import { PLACEHOLDER } from '../lib/placeholder';
 import { ImageUploadButton } from './ImageUploadButton';
 import { DocumentUploadButton } from './DocumentUploadButton';
 import { MessageAttachments } from './MessageAttachments';
+import SunoEmbed, { isSunoUrl } from './SunoEmbed';
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -188,11 +189,46 @@ interface ChatWindowProps {
   supportsImageUpload?: boolean;
   /** Agent 是否支持文档上传（配置了 document_upload 技能） */
   supportsDocumentUpload?: boolean;
+  /** Edge Agent 工具调用状态通知（如"正在调用 suno_generate..."），发送结束后自动清除 */
+  edgeStatus?: string | null;
 }
 
 const LIGHT_PRESETS = ['lumina-light', 'facebook', 'wechat'];
 
-const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, userAvatar, sharedWithCreator, humanized, onToggleShare, agentOnline = true, agentType = 'cloud', onSendMessage, onUpdateSettings, onBack, sending, sendingInThisChat = true, shareLoading, sendError, onClearSendError, onClearHistory, clearHistoryLoading, onDeleteMemory, deleteMemoryLoading, onDeleteChat, deleteChatLoading, friendAgents, supportsImageUpload, supportsDocumentUpload }) => {
+const MARKDOWN_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>['components'] = {
+  code({ node, inline, className, children, ...props }) {
+    const match = /language-(\w+)/.exec(className ?? '');
+    if (!inline && match?.[1] === 'mermaid') {
+      return <MermaidDiagram code={String(children).replace(/\n$/, '')} />;
+    }
+    return (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    );
+  },
+  table({ children }) {
+    return (
+      <div className="overflow-x-auto my-2 -mx-1">
+        <table>{children}</table>
+      </div>
+    );
+  },
+  a({ href, children }) {
+    const url = href ?? '';
+    const label = typeof children === 'string' ? children : undefined;
+    if (isSunoUrl(url)) {
+      return <SunoEmbed url={url} title={label} />;
+    }
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer">
+        {children}
+      </a>
+    );
+  },
+};
+
+const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, userAvatar, sharedWithCreator, humanized, onToggleShare, agentOnline = true, agentType = 'cloud', onSendMessage, onUpdateSettings, onBack, sending, sendingInThisChat = true, shareLoading, sendError, onClearSendError, onClearHistory, clearHistoryLoading, onDeleteMemory, deleteMemoryLoading, onDeleteChat, deleteChatLoading, friendAgents, supportsImageUpload, supportsDocumentUpload, edgeStatus }) => {
   const { t } = useLanguage();
   const { theme } = useTheme();
   const [input, setInput] = useState('');
@@ -861,26 +897,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
                     <div className="markdown-content max-w-full overflow-hidden">
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
-                        components={{
-                          code({ node, inline, className, children, ...props }) {
-                            const match = /language-(\w+)/.exec(className ?? '');
-                            if (!inline && match?.[1] === 'mermaid') {
-                              return <MermaidDiagram code={String(children).replace(/\n$/, '')} />;
-                            }
-                            return (
-                              <code className={className} {...props}>
-                                {children}
-                              </code>
-                            );
-                          },
-                          table({ children }) {
-                            return (
-                              <div className="overflow-x-auto my-2 -mx-1">
-                                <table>{children}</table>
-                              </div>
-                            );
-                          },
-                        }}
+                        components={MARKDOWN_COMPONENTS}
                       >
                         {wrapBareMermaid(wrapTabularToMarkdown(msg.text ?? '')) || '\u200b'}
                       </ReactMarkdown>
@@ -914,6 +931,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
               <div className="p-3 lg:p-4 rounded-2xl rounded-tl-none shadow-sm text-sm lg:text-base message-bubble-ai animate-pulse">
                 <span className="opacity-80">{typingPhrase}</span>
               </div>
+            </div>
+          </div>
+        )}
+        {/* Edge 工具调用进度通知气泡 */}
+        {sending && sendingInThisChat && edgeStatus && (
+          <div className="flex justify-start pl-1">
+            <div className="px-3 py-1.5 rounded-lg bg-indigo-900/30 border border-indigo-700/40 text-indigo-300 text-xs flex items-center gap-2 max-w-xs">
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse shrink-0" />
+              <span className="truncate">{edgeStatus}</span>
             </div>
           </div>
         )}

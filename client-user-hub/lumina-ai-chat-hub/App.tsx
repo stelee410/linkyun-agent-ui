@@ -37,6 +37,7 @@ import {
   sendGroupMessage,
   getGroupChatMessages,
   subscribeToPushEvents,
+  type EdgeStatusEvent,
   deleteGroupChat as deleteGroupChatApi,
   updateGroupChat as updateGroupChatApi,
   resolvePendingAttachments,
@@ -210,6 +211,7 @@ const AppContent: React.FC = () => {
   const [loadingChat, setLoadingChat] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [sendingChatKey, setSendingChatKey] = useState<string | null>(null);
+  const [edgeStatus, setEdgeStatus] = useState<string | null>(null);
   const [shareLoading, setShareLoading] = useState(false);
   const [clearHistoryLoading, setClearHistoryLoading] = useState(false);
   const [deleteMemoryLoading, setDeleteMemoryLoading] = useState(false);
@@ -440,7 +442,10 @@ const AppContent: React.FC = () => {
         });
         markSessionRead(auth.apiKey, sessionId);
       },
-      () => { /* ignore reconnect handled by cleanup */ }
+      () => { /* ignore reconnect handled by cleanup */ },
+      (evt: EdgeStatusEvent) => {
+        setEdgeStatus(evt.content);
+      }
     );
     return unsubscribe;
   }, [view, activeChatId]);
@@ -845,6 +850,7 @@ const AppContent: React.FC = () => {
     } finally {
       setSendingMessage(false);
       setSendingChatKey(null);
+      setEdgeStatus(null);
     }
   };
 
@@ -1134,6 +1140,7 @@ const AppContent: React.FC = () => {
               onBack={() => { setActiveChatId(null); setShowSidebarOnMobile(true); }}
               sending={sendingMessage}
               sendingInThisChat={sendingChatKey === chatKey}
+              edgeStatus={sendingChatKey === chatKey ? edgeStatus : null}
               shareLoading={shareLoading}
               sendError={sendError}
               onClearSendError={() => setSendError(null)}
