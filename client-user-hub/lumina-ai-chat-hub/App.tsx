@@ -386,6 +386,51 @@ const AppContent: React.FC = () => {
     return () => { cancelled = true; clearTimeout(timer); };
   }, [groupPolling]);
 
+  // 1v1 等待 Edge 回复时轮询消息：SSE 可能未推送，用轮询拉取新消息并清除「正在调用…」气泡
+  useEffect(() => {
+    if (view !== 'messages' || !activeChatId || sendingChatKey !== activeChatId) return;
+    if (activeChatId.startsWith('group-')) return;
+    const auth = getAuth();
+    if (!auth) return;
+    const chatKey = activeChatId;
+    let lastCount = (chatMessages[chatKey] || []).length;
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 40; // 约 2 分钟（每 3s 一次）
+
+    const poll = async () => {
+      if (cancelled) return;
+      const res = await getUserChatMessages(auth.apiKey, Number(chatKey));
+      if (cancelled) return;
+      if (res.success && res.data?.messages) {
+        const next = res.data.messages;
+        setChatMessages((prev) => ({ ...prev, [chatKey]: next }));
+        if (next.length > lastCount) {
+          asyncWaitingChatKeyRef.current = null;
+          setSendingMessage(false);
+          setSendingChatKey(null);
+          setEdgeStatus(null);
+          return;
+        }
+        lastCount = next.length;
+      }
+      attempts++;
+      if (attempts >= maxAttempts) {
+        setSendingMessage(false);
+        setSendingChatKey(null);
+        setEdgeStatus(null);
+        return;
+      }
+      if (!cancelled) setTimeout(poll, 3000);
+    };
+
+    const timer = setTimeout(poll, 2000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [view, activeChatId, sendingChatKey]);
+
   // Clear unread count whenever the active chat changes
   useEffect(() => {
     if (!activeChatId || view !== 'messages') return;
@@ -403,6 +448,50 @@ const AppContent: React.FC = () => {
     });
     markSessionRead(auth.apiKey, sessionId);
   }, [activeChatId, view]);
+
+  const addFriend = async (aiId: string) => {
+    if (friendIds.includes(aiId)) return;
+    const auth = getAuth();
+    if (!auth) return;
+    const res = await addFriendApi(auth.apiKey, Number(aiId));
+    if (res.success) {
+      setFriendIds(prev => [...prev, aiId]);
+      await loadFriends(auth.apiKey);
+    }
+  };
+
+  const removeFriend = async (aiId: string) => {
+    const auth = getAuth();
+    if (!auth) return;
+    const res = await removeFriendApi(auth.apiKey, Number(aiId));
+    if (res.success) {
+      setFriendIds(prev => prev.filter(id => id !== aiId));
+      setFriendAgents(prev => prev.filter(a => String(a.id) !== aiId));
+    }
+  };
+
+  const findFriendAgent = (aiId: string): DiscoverAgent | undefined =>
+    friendAgents.find((a) => String(a.id) === aiId);
+
+  const loadChatMessages = useCallback(
+    async (chatKey: string) => {
+      const auth = getAuth();
+      if (!auth) return;
+      setLoadingChat(true);
+      let res;
+      if (chatKey.startsWith('group-')) {
+        const gId = Number(chatKey.replace('group-', ''));
+        res = await getGroupChatMessages(auth.apiKey, gId);
+      } else {
+        res = await getUserChatMessages(auth.apiKey, Number(chatKey));
+      }
+      setLoadingChat(false);
+      if (res.success && res.data?.messages) {
+        setChatMessages((prev) => ({ ...prev, [chatKey]: res.data!.messages }));
+      }
+    },
+    []
+  );
 
   // SSE subscription for real-time push messages when viewing a chat
   useEffect(() => {
@@ -453,55 +542,23 @@ const AppContent: React.FC = () => {
       },
       () => { /* ignore reconnect handled by cleanup */ },
       (evt: EdgeStatusEvent) => {
-        setEdgeStatus(evt.content);
+        const isToolDone =
+          evt.metadata?.stage === 'tool_done' ||
+          evt.metadata?.stage === 'mcp_done' ||
+          (evt.content && (evt.content.includes('执行完成') || evt.content === 'MCP调用结束'));
+        if (isToolDone) {
+          setEdgeStatus(null);
+          setSendingMessage(false);
+          setSendingChatKey(null);
+          asyncWaitingChatKeyRef.current = null;
+          loadChatMessages(chatKey);
+        } else {
+          setEdgeStatus(evt.content);
+        }
       }
     );
     return unsubscribe;
-  }, [view, activeChatId]);
-
-  const addFriend = async (aiId: string) => {
-    if (friendIds.includes(aiId)) return;
-    const auth = getAuth();
-    if (!auth) return;
-    const res = await addFriendApi(auth.apiKey, Number(aiId));
-    if (res.success) {
-      setFriendIds(prev => [...prev, aiId]);
-      await loadFriends(auth.apiKey);
-    }
-  };
-
-  const removeFriend = async (aiId: string) => {
-    const auth = getAuth();
-    if (!auth) return;
-    const res = await removeFriendApi(auth.apiKey, Number(aiId));
-    if (res.success) {
-      setFriendIds(prev => prev.filter(id => id !== aiId));
-      setFriendAgents(prev => prev.filter(a => String(a.id) !== aiId));
-    }
-  };
-
-  const findFriendAgent = (aiId: string): DiscoverAgent | undefined =>
-    friendAgents.find((a) => String(a.id) === aiId);
-
-  const loadChatMessages = useCallback(
-    async (chatKey: string) => {
-      const auth = getAuth();
-      if (!auth) return;
-      setLoadingChat(true);
-      let res;
-      if (chatKey.startsWith('group-')) {
-        const gId = Number(chatKey.replace('group-', ''));
-        res = await getGroupChatMessages(auth.apiKey, gId);
-      } else {
-        res = await getUserChatMessages(auth.apiKey, Number(chatKey));
-      }
-      setLoadingChat(false);
-      if (res.success && res.data?.messages) {
-        setChatMessages((prev) => ({ ...prev, [chatKey]: res.data!.messages }));
-      }
-    },
-    []
-  );
+  }, [view, activeChatId, loadChatMessages]);
 
   const createChat = async (aiId: string) => {
     const auth = getAuth();
@@ -950,6 +1007,13 @@ const AppContent: React.FC = () => {
           setActiveChatId(key);
           navigateToView('messages');
           loadChatMessages(key);
+          // 若点进的是正在等待回复的会话，加载完消息后清除气泡和等待状态（解决 SSE 未推送时气泡不消失）
+          if (key === sendingChatKey) {
+            asyncWaitingChatKeyRef.current = null;
+            setSendingMessage(false);
+            setSendingChatKey(null);
+            setEdgeStatus(null);
+          }
           // Mark session as read and clear local unread count
           const sessionId = key.startsWith('group-') ? Number(key.replace('group-', '')) : Number(key);
           if (sessionId > 0) {
