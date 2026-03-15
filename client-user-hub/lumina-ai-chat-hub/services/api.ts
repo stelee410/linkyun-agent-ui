@@ -537,6 +537,8 @@ export interface SendMessageResponse {
   model: string;
   audio_url?: string;
   usage: { input_tokens: number; output_tokens: number; total_tokens: number };
+  /** edge-proxy 异步接管：不保存消息到 DB，最终结果通过 push 通知推送 */
+  queued?: boolean;
 }
 
 /** Build avatar URL from filename (for UserChatSession) */
@@ -660,6 +662,8 @@ export async function sendUserMessageStream(
   callbacks: {
     onChunk: (text: string) => void;
     onDone: (messageId: string, usage?: StreamEvent["usage"]) => void;
+    /** edge-proxy 已将请求加入本地队列，结果将通过 push 推送，调用方不应清除 loading 状态 */
+    onQueued?: () => void;
   }
 ): Promise<void> {
   const body: Record<string, unknown> = { content, stream: true };
@@ -681,6 +685,11 @@ export async function sendUserMessageStream(
   if (!isSSE) {
     const json = await res.json() as { data?: SendMessageResponse } | SendMessageResponse;
     const data = (json as { data?: SendMessageResponse }).data ?? (json as SendMessageResponse);
+    // edge-proxy 已异步接管，结果将通过 push 通知推送
+    if (data?.queued) {
+      callbacks.onQueued?.();
+      return;
+    }
     const msgId = data?.message_id;
     const msgContent = data?.content;
     if (msgId && msgContent) {
@@ -716,6 +725,11 @@ export async function sendUserMessageStream(
           else if (ev.type === "done" && ev.message_id) {
             callbacks.onDone(ev.message_id, ev.usage);
             gotDone = true;
+            return;
+          } else if (ev.type === "queued") {
+            // edge-proxy 已异步接管，结果将通过 push 通知推送
+            callbacks.onQueued?.();
+            gotDone = true; // 防止 fallback 触发
             return;
           } else if (ev.type === "error") throw new Error(ev.error ?? "Stream error");
         } catch (e) {

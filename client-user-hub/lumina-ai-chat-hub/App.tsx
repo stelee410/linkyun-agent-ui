@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Message, MomentPost, UserProfile, getViewFromPath, VIEW_PATHS } from './types';
 import { AI_HUMANS } from './constants';
 import Sidebar from './components/Sidebar/Sidebar';
@@ -212,6 +212,8 @@ const AppContent: React.FC = () => {
   const [sendingMessage, setSendingMessage] = useState(false);
   const [sendingChatKey, setSendingChatKey] = useState<string | null>(null);
   const [edgeStatus, setEdgeStatus] = useState<string | null>(null);
+  // edge-proxy 异步排队中的 chatKey；此时 sendingMessage 保持 true 直到 push 推送结果
+  const asyncWaitingChatKeyRef = useRef<string | null>(null);
   const [shareLoading, setShareLoading] = useState(false);
   const [clearHistoryLoading, setClearHistoryLoading] = useState(false);
   const [deleteMemoryLoading, setDeleteMemoryLoading] = useState(false);
@@ -429,10 +431,17 @@ const AppContent: React.FC = () => {
         };
         setChatMessages((prev) => {
           const curr = prev[chatKey] || [];
-          const exists = curr.some((m) => m.uuid === ev.message_id);
+          // 移除 edge-proxy 异步排队时留下的 stream- 占位气泡
+          const filtered = curr.filter((m) => !String(m.uuid).startsWith('stream-'));
+          const exists = filtered.some((m) => m.uuid === ev.message_id);
           if (exists) return prev;
-          return { ...prev, [chatKey]: [...curr, cm] };
+          return { ...prev, [chatKey]: [...filtered, cm] };
         });
+        // 任何消息落库推送到来，立即解除等待状态，让用户可以继续输入
+        asyncWaitingChatKeyRef.current = null;
+        setSendingMessage(false);
+        setSendingChatKey(null);
+        setEdgeStatus(null);
         // User is actively viewing this chat — clear unread count immediately
         setUnreadCounts((prev) => {
           if (!prev[String(sessionId)]) return prev;
@@ -754,6 +763,18 @@ const AppContent: React.FC = () => {
           [chatKey]: [...(prev[chatKey] || []), aiPlaceholder],
         }));
 
+        let wasQueued = false;
+
+        const handleQueued = () => {
+          // edge-proxy 已异步接管：移除占位气泡，保持 sending=true 直到 push 推送结果
+          wasQueued = true;
+          asyncWaitingChatKeyRef.current = chatKey;
+          setChatMessages((prev) => ({
+            ...prev,
+            [chatKey]: (prev[chatKey] || []).filter((m) => m.uuid !== tempAiUuid),
+          }));
+        };
+
         const tryStream = async () => {
           let accumulated = '';
           await sendUserMessageStream(auth.apiKey, chatId, text, attachForApi, {
@@ -796,12 +817,18 @@ const AppContent: React.FC = () => {
                 }
               });
             },
+            onQueued: handleQueued,
           });
         };
 
         const tryNonStream = async () => {
           const res = await sendUserMessage(auth.apiKey, chatId, text, attachForApi);
           if (res.success && res.data) {
+            // edge-proxy 异步接管
+            if (res.data.queued) {
+              handleQueued();
+              return;
+            }
             const aiCreatedAt = new Date().toISOString();
             setChatMessages((prev) => ({
               ...prev,
@@ -848,9 +875,12 @@ const AppContent: React.FC = () => {
       }));
       setSendError('Network error, please check connection');
     } finally {
-      setSendingMessage(false);
-      setSendingChatKey(null);
-      setEdgeStatus(null);
+      // queued 时保持 sending=true 和 edgeStatus，等待 push 通知到来再清除
+      if (!wasQueued) {
+        setSendingMessage(false);
+        setSendingChatKey(null);
+        setEdgeStatus(null);
+      }
     }
   };
 

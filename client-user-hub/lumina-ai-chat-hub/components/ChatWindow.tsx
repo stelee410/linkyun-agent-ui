@@ -246,7 +246,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
   const [isInputExpanded, setIsInputExpanded] = useState(false);
 
   useEffect(() => {
-    if (sending) {
+    if (sendingInThisChat) {
       const chatAny = t.chat as { typingPhrases?: string[]; typingPhraseGroup?: string };
       if (chat.participants.length > 1 && chatAny.typingPhraseGroup) {
         setTypingPhrase(chatAny.typingPhraseGroup);
@@ -254,8 +254,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
         const phrases = chatAny.typingPhrases ?? ['...'];
         setTypingPhrase(phrases[Math.floor(Math.random() * phrases.length)] ?? '...');
       }
+    } else {
+      setTypingPhrase('');
     }
-  }, [sending, chat.participants.length, t.chat]);
+  }, [sendingInThisChat, chat.participants.length, t.chat]);
   
   const [tempParticipants, setTempParticipants] = useState<string[]>(chat.participants);
   const [tempTitle, setTempTitle] = useState(chat.title);
@@ -915,19 +917,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
             </div>
           </div>
         ))}
-        {sending && typingPhrase && !(sendingInThisChat && chat.messages.length > 0 && chat.messages[chat.messages.length - 1]?.isAI) && (
+        {/* 仅当前对话在等待 AI 回复时显示等待气泡，其他窗口不显示 */}
+        {sendingInThisChat && typingPhrase && !(chat.messages.length > 0 && chat.messages[chat.messages.length - 1]?.isAI) && (
           <div className="flex gap-3 max-w-[90%] lg:max-w-[85%]">
             <div className="size-8 lg:size-9 rounded-xl overflow-hidden shrink-0 mt-1 border border-border-dark shadow-md bg-slate-600/60 flex items-center justify-center">
-              {!sendingInThisChat || chat.participants.length > 1 ? (
+              {chat.participants.length > 1 ? (
                 <span className="material-symbols-outlined text-slate-400 text-lg lg:text-xl">smart_toy</span>
               ) : (
                 <img src={agentAvatar || PLACEHOLDER.avatar} alt={chat.title} className="w-full h-full object-cover" />
               )}
             </div>
             <div className="flex flex-col gap-1 min-w-0">
-              <span className="text-[9px] lg:text-[10px] font-bold px-1 text-primary">
-                {sendingInThisChat ? chat.title : (t.chat as { typingOtherChat?: string }).typingOtherChat || 'AI Agent'}
-              </span>
+              <span className="text-[9px] lg:text-[10px] font-bold px-1 text-primary">{chat.title}</span>
               <div className="p-3 lg:p-4 rounded-2xl rounded-tl-none shadow-sm text-sm lg:text-base message-bubble-ai animate-pulse">
                 <span className="opacity-80">{typingPhrase}</span>
               </div>
@@ -935,7 +936,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
           </div>
         )}
         {/* Edge 工具调用进度通知气泡 */}
-        {sending && sendingInThisChat && edgeStatus && (
+        {sendingInThisChat && edgeStatus && (
           <div className="flex justify-start pl-1">
             <div className="px-3 py-1.5 rounded-lg bg-indigo-900/30 border border-indigo-700/40 text-indigo-300 text-xs flex items-center gap-2 max-w-xs">
               <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse shrink-0" />
@@ -1069,7 +1070,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
             {uploadError}
           </div>
         )}
-        <div className={`bg-surface-dark border border-border-dark rounded-2xl p-1.5 lg:p-2 shadow-xl flex items-center gap-1 lg:gap-2 focus-within:ring-2 focus-within:ring-primary/40 transition-all ${(agentType === 'edge' && !agentOnline) || sending ? 'opacity-60 pointer-events-none' : ''}`}>
+        <div className={`bg-surface-dark border border-border-dark rounded-2xl p-1.5 lg:p-2 shadow-xl flex items-center gap-1 lg:gap-2 focus-within:ring-2 focus-within:ring-primary/40 transition-all ${(agentType === 'edge' && !agentOnline) || sendingInThisChat ? 'opacity-60 pointer-events-none' : ''}`}>
           {(supportsImageUpload || supportsDocumentUpload) && (
             <div className="flex gap-0.5 p-0.5">
               {supportsImageUpload && (
@@ -1078,7 +1079,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
                   attachment={pendingImage}
                   onUploaded={(a) => { setUploadError(null); setPendingImage(a); }}
                   onError={setUploadError}
-                  disabled={sending}
+                  disabled={sendingInThisChat}
                 />
               )}
               {supportsDocumentUpload && (
@@ -1088,7 +1089,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
                   onUploaded={(a) => { setUploadError(null); setPendingDocument(a); }}
                   onClear={() => setPendingDocument(null)}
                   onError={setUploadError}
-                  disabled={sending}
+                  disabled={sendingInThisChat}
                 />
               )}
             </div>
@@ -1121,7 +1122,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
               </button>
              <button 
                 onClick={handleSend}
-                disabled={sending || (!input.trim() && !pendingImage && !pendingDocument)}
+                disabled={sendingInThisChat || (!input.trim() && !pendingImage && !pendingDocument)}
                 className="bg-primary text-white p-2 rounded-xl flex items-center justify-center shadow-lg shadow-primary/20 hover:opacity-90 active:scale-95 transition-all shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                 title="发送"
               >
@@ -1190,17 +1191,17 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
         {uploadError && (
           <div className="mb-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-sm">{uploadError}</div>
         )}
-        <div className={`bg-surface-dark border border-border-dark rounded-2xl p-1.5 lg:p-2 shadow-xl flex items-center gap-1 lg:gap-2 focus-within:ring-2 focus-within:ring-primary/40 transition-all ${(agentType === 'edge' && !agentOnline) || sending ? 'opacity-60 pointer-events-none' : ''}`}>
+        <div className={`bg-surface-dark border border-border-dark rounded-2xl p-1.5 lg:p-2 shadow-xl flex items-center gap-1 lg:gap-2 focus-within:ring-2 focus-within:ring-primary/40 transition-all ${(agentType === 'edge' && !agentOnline) || sendingInThisChat ? 'opacity-60 pointer-events-none' : ''}`}>
           {(supportsImageUpload || supportsDocumentUpload) && (
             <div className="flex gap-0.5 p-0.5">
-              {supportsImageUpload && <ImageUploadButton apiKey={apiKey} attachment={pendingImage} onUploaded={(a) => { setUploadError(null); setPendingImage(a); }} onError={setUploadError} disabled={sending} />}
-              {supportsDocumentUpload && <DocumentUploadButton apiKey={apiKey} attachment={pendingDocument} onUploaded={(a) => { setUploadError(null); setPendingDocument(a); }} onClear={() => setPendingDocument(null)} onError={setUploadError} disabled={sending} />}
+              {supportsImageUpload && <ImageUploadButton apiKey={apiKey} attachment={pendingImage} onUploaded={(a) => { setUploadError(null); setPendingImage(a); }} onError={setUploadError} disabled={sendingInThisChat} />}
+              {supportsDocumentUpload && <DocumentUploadButton apiKey={apiKey} attachment={pendingDocument} onUploaded={(a) => { setUploadError(null); setPendingDocument(a); }} onClear={() => setPendingDocument(null)} onError={setUploadError} disabled={sendingInThisChat} />}
             </div>
           )}
           <textarea ref={inputRef} className="flex-1 min-h-[2.5rem] bg-transparent border-none focus:ring-0 py-2.5 lg:py-3 resize-none max-h-32 lg:max-h-40 placeholder:opacity-40 text-sm custom-scrollbar" placeholder={chat.participants.length > 1 ? t.chat.inputPlaceholderGroup : t.chat.inputPlaceholder} rows={1} value={input} onChange={(e) => handleInputChange(e.target.value)} onCompositionStart={() => { isComposingRef.current = true; }} onCompositionEnd={() => { setTimeout(() => { isComposingRef.current = false; }, 0); }} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !isComposingRef.current) { e.preventDefault(); handleSend(); } }} />
           <div className="flex gap-0.5 p-0.5">
             <button type="button" onClick={() => setShowEmojiPicker((v) => !v)} className={`p-2 transition-colors ${showEmojiPicker ? 'text-primary opacity-100' : 'opacity-50 hover:text-primary hover:opacity-100'}`} title="表情" aria-label="选择表情"><span className="material-symbols-outlined text-xl">mood</span></button>
-            <button onClick={handleSend} disabled={sending || (!input.trim() && !pendingImage && !pendingDocument)} className="bg-primary text-white p-2 rounded-xl flex items-center justify-center shadow-lg shadow-primary/20 hover:opacity-90 active:scale-95 transition-all shrink-0 disabled:opacity-50 disabled:cursor-not-allowed" title="发送"><span className="material-symbols-outlined font-bold text-xl lg:text-2xl">send</span></button>
+            <button onClick={handleSend} disabled={sendingInThisChat || (!input.trim() && !pendingImage && !pendingDocument)} className="bg-primary text-white p-2 rounded-xl flex items-center justify-center shadow-lg shadow-primary/20 hover:opacity-90 active:scale-95 transition-all shrink-0 disabled:opacity-50 disabled:cursor-not-allowed" title="发送"><span className="material-symbols-outlined font-bold text-xl lg:text-2xl">send</span></button>
           </div>
         </div>
       </div>
