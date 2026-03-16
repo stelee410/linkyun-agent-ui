@@ -1,7 +1,21 @@
 import path from 'path';
+import fs from 'fs';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+
+/** 构建时生成 version.json，用于运行时检测是否有新版本（避免长期使用浏览器缓存） */
+function versionJsonPlugin() {
+  const outDir = path.resolve(__dirname, 'dist');
+  return {
+    name: 'version-json',
+    writeBundle() {
+      const version = { buildTime: Date.now(), version: '0.0.0' };
+      fs.mkdirSync(outDir, { recursive: true });
+      fs.writeFileSync(path.join(outDir, 'version.json'), JSON.stringify(version), 'utf-8');
+    },
+  };
+}
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
@@ -13,8 +27,9 @@ export default defineConfig(({ mode }) => {
       appType: 'spa', // SPA 路由：/messages、/contacts、/discovery、/moments 等路径需回退到 index.html
       plugins: [
         react(),
+        versionJsonPlugin(),
         VitePWA({
-          registerType: 'autoUpdate',
+          registerType: 'prompt', // 有更新时提示用户刷新，避免长期使用旧缓存
           includeAssets: ['pwa-icon.svg'],
           manifest: {
             name: 'Linkyun AI - Chat Hub',

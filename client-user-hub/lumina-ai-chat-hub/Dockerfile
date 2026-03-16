@@ -1,5 +1,7 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
+# 前端模块多、bundle 大，构建时需足够堆内存，避免在 transform 阶段卡住或 OOM
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 COPY package*.json ./
 RUN npm ci
 COPY . .

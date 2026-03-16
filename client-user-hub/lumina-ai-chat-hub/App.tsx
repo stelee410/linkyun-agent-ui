@@ -52,6 +52,7 @@ import {
 import type { APIMoment } from './services/api';
 import type { ChatMessage as APIChatMessage } from './services/api';
 import { PLACEHOLDER } from './lib/placeholder';
+import UpdateRefreshBanner from './components/UpdateRefreshBanner';
 
 function creatorToUserProfile(creator: Creator | null | undefined): UserProfile | null {
   if (!creator || creator.id == null) return null;
@@ -998,6 +999,7 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="flex w-full bg-background-dark text-slate-100 overflow-hidden font-sans" style={{ height: 'var(--vh, 100dvh)', minHeight: 'var(--vh, 100dvh)' }}>
+      <UpdateRefreshBanner />
       <Sidebar 
         chats={sidebarChats} 
         activeChatId={activeChatId} 
