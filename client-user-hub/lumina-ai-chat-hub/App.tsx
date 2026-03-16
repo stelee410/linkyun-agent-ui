@@ -208,7 +208,10 @@ const AppContent: React.FC = () => {
 
   const [chats, setChats] = useState<UserChatSession[]>([]);
   const [groupChats, setGroupChats] = useState<GroupChatSession[]>([]);
+  // 始终持有最新 chatMessages，供异步回调（定时器、轮询）读取，避免 stale closure
+  const chatMessagesRef = useRef<Record<string, ChatMessage[]>>({});
   const [chatMessages, setChatMessages] = useState<Record<string, ChatMessage[]>>({});
+  chatMessagesRef.current = chatMessages;
   const [loadingChat, setLoadingChat] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [sendingChatKey, setSendingChatKey] = useState<string | null>(null);
@@ -448,6 +451,68 @@ const AppContent: React.FC = () => {
       clearTimeout(timer);
     };
   }, [view, activeChatId, sendingChatKey]);
+
+  // 兜底轮询：通过 notify 接口感知当前 session 的新消息并刷新聊天窗口。
+  // 覆盖所有异步场景（技能调用完成、edge-proxy 推送等），与 SSE 流式渲染不冲突。
+  useEffect(() => {
+    if (view !== 'messages' || !activeChatId) return;
+    const auth = getAuth();
+    if (!auth) return;
+
+    const sessionId = activeChatId.startsWith('group-')
+      ? Number(activeChatId.replace('group-', ''))
+      : Number(activeChatId);
+    if (!sessionId || Number.isNaN(sessionId)) return;
+
+    const chatKey = activeChatId;
+    let cancelled = false;
+
+    const poll = async () => {
+      if (cancelled) return;
+      try {
+        const res = await getUnreadCounts(auth.apiKey);
+        if (cancelled) return;
+
+        const unread = (res.success && res.data?.unread_counts?.[String(sessionId)]) || 0;
+        if (unread > 0) {
+          // SSE 流式渲染进行中时不覆盖，等下一轮再检查
+          const msgs = chatMessagesRef.current[chatKey] || [];
+          const isStreaming = msgs.some((m) => String(m.uuid).startsWith('stream-'));
+          if (!isStreaming) {
+            // 拉取最新消息并刷新窗口
+            const msgRes = await getUserChatMessages(auth.apiKey, sessionId);
+            if (cancelled) return;
+            if (msgRes.success && msgRes.data?.messages) {
+              setChatMessages((prev) => ({ ...prev, [chatKey]: msgRes.data!.messages }));
+            }
+            // 若当前处于技能等待状态，清除 loading
+            if (asyncWaitingChatKeyRef.current === chatKey) {
+              asyncWaitingChatKeyRef.current = null;
+              setSendingMessage(false);
+              setSendingChatKey(null);
+              setEdgeStatus(null);
+            }
+            // 重置已读
+            markSessionRead(auth.apiKey, sessionId);
+            setUnreadCounts((prev) => {
+              const next = { ...prev };
+              delete next[String(sessionId)];
+              return next;
+            });
+          }
+        }
+      } catch {
+        // 忽略网络错误，继续下一轮
+      }
+      if (!cancelled) setTimeout(poll, 4000);
+    };
+
+    const timer = setTimeout(poll, 4000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [view, activeChatId]);
 
   // Clear unread count whenever the active chat changes
   useEffect(() => {
