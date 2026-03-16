@@ -339,9 +339,32 @@ const AppContent: React.FC = () => {
     let attempts = 0;
     const maxAttempts = 90; // ~3 min at 2s intervals
 
+    const refreshFullGroupMessages = async () => {
+      const fullRes = await getGroupChatMessages(auth.apiKey, gId, 50);
+      if (cancelled || !fullRes.success || !fullRes.data) return;
+      setChatMessages((prev) => ({ ...prev, [chatKey]: fullRes.data!.messages }));
+      const latest = fullRes.data.messages.reduce<ChatMessage | null>((acc, msg) => {
+        if (!acc) return msg;
+        return new Date(msg.created_at || 0).getTime() > new Date(acc.created_at || 0).getTime() ? msg : acc;
+      }, null);
+      if (latest) {
+        setGroupChats((prev) =>
+          prev.map((c) =>
+            c.id === gId
+              ? {
+                  ...c,
+                  last_message_at: latest.created_at,
+                  last_message_preview: (latest.content || '').slice(0, 50) + ((latest.content?.length || 0) > 50 ? '…' : ''),
+                }
+              : c
+          )
+        );
+      }
+    };
+
     const poll = async () => {
       if (cancelled) return;
-      const existing = chatMessages[chatKey] || [];
+      const existing = chatMessagesRef.current[chatKey] || [];
       const lastId = existing.length > 0 ? Math.max(...existing.filter(m => m.id > 0).map(m => m.id), 0) : 0;
       const res = await getGroupChatMessages(auth.apiKey, gId, 50, lastId > 0 ? lastId : undefined);
       if (cancelled) return;
@@ -372,6 +395,8 @@ const AppContent: React.FC = () => {
           );
         }
         if (!res.data.processing) {
+          // 最后一轮做一次全量刷新，避免 after 增量轮询在状态切换边界漏掉最终回复。
+          await refreshFullGroupMessages();
           setGroupPolling(null);
           setSendingMessage(false);
           return;
