@@ -452,16 +452,16 @@ const AppContent: React.FC = () => {
     };
   }, [view, activeChatId, sendingChatKey]);
 
-  // 兜底轮询：通过 notify 接口感知当前 session 的新消息并刷新聊天窗口。
+  // 兜底轮询：通过 notify 接口感知当前 1v1 session 的新消息并刷新聊天窗口。
   // 覆盖所有异步场景（技能调用完成、edge-proxy 推送等），与 SSE 流式渲染不冲突。
+  // 群聊有独立的 groupPolling 机制，此处跳过，避免用错误的 API 覆盖群聊消息状态。
   useEffect(() => {
     if (view !== 'messages' || !activeChatId) return;
+    if (activeChatId.startsWith('group-')) return;
     const auth = getAuth();
     if (!auth) return;
 
-    const sessionId = activeChatId.startsWith('group-')
-      ? Number(activeChatId.replace('group-', ''))
-      : Number(activeChatId);
+    const sessionId = Number(activeChatId);
     if (!sessionId || Number.isNaN(sessionId)) return;
 
     const chatKey = activeChatId;
@@ -1359,7 +1359,12 @@ const AppContent: React.FC = () => {
             participants: participants.map((p) => `agent-${p.agent_id}`),
             participantDetails,
             messages: msgs
-              .filter((m) => m.role !== 'system')
+              .filter((m) => {
+                if (m.role === 'system') return false;
+                // 过滤掉内容为空且无附件的 assistant 消息（edge-proxy 处理中短暂写入的空占位）
+                if (m.role === 'assistant' && !m.content && !(m.attachments && m.attachments.length > 0)) return false;
+                return true;
+              })
               .map((m) => {
                 const senderP = m.sender_agent_id ? participantMap[String(m.sender_agent_id)] : undefined;
                 const senderAvatar = senderP ? getAgentAvatarUrlForFilename(senderP.agent_avatar, senderP.agent_name) : undefined;
