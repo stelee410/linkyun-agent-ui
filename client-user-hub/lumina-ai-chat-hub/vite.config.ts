@@ -33,6 +33,10 @@ export default defineConfig(({ mode }) => {
           workbox: {
             globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
             navigateFallback: '/index.html',
+            // 避免 workbox 内部 terser 与 Rollup 收尾时的竞态导致 build 失败
+            mode: 'development',
+            // 主 chunk 含 mermaid 等较大依赖，超过默认 2 MiB，提高到 5 MiB
+            maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           },
         }),
       ],
