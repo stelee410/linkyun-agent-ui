@@ -799,6 +799,20 @@ export async function clearUserChatMessages(
   return res as ApiResponse<{ deleted: number }>;
 }
 
+export async function clearGroupChatMessages(
+  apiKey: string,
+  groupId: number
+): Promise<ApiResponse<{ deleted: number }>> {
+  const res = await request<{ data?: { deleted: number } }>(
+    `/user/group-chats/${groupId}/messages`,
+    { method: "DELETE", apiKey }
+  );
+  if (res.success && res.data?.data) {
+    return { success: true, data: res.data.data };
+  }
+  return res as ApiResponse<{ deleted: number }>;
+}
+
 /** Delete all memories between user and agent for this chat */
 export async function deleteChatMemories(
   apiKey: string,

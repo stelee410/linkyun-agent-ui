@@ -26,6 +26,7 @@ import {
   toggleShareWithCreator,
   toggleGroupShare,
   clearUserChatMessages,
+  clearGroupChatMessages,
   deleteUserChat,
   deleteChatMemories,
   updateChatTitle,
@@ -783,9 +784,14 @@ const AppContent: React.FC = () => {
   const handleClearHistory = async (chatKey: string): Promise<boolean> => {
     const auth = getAuth();
     if (!auth) return false;
-    if (chatKey.startsWith('group-')) return false;
     setClearHistoryLoading(true);
-    const res = await clearUserChatMessages(auth.apiKey, Number(chatKey));
+    let res;
+    if (chatKey.startsWith('group-')) {
+      const gId = Number(chatKey.replace('group-', ''));
+      res = await clearGroupChatMessages(auth.apiKey, gId);
+    } else {
+      res = await clearUserChatMessages(auth.apiKey, Number(chatKey));
+    }
     setClearHistoryLoading(false);
     if (res.success) {
       setChatMessages((prev) => ({ ...prev, [chatKey]: [] }));
