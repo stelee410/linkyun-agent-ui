@@ -405,15 +405,32 @@ const AppContent: React.FC = () => {
       if (cancelled) return;
       if (res.success && res.data?.messages) {
         const next = res.data.messages;
-        setChatMessages((prev) => ({ ...prev, [chatKey]: next }));
-        if (next.length > lastCount) {
+        // SSE 流式进行中时（存在 stream-xxx 占位气泡），不覆盖本地状态，
+        // 避免把正在更新的流式气泡清除掉。此轮询仅用于 edge-proxy 异步场景。
+        let newMsgCount = 0;
+        setChatMessages((prev) => {
+          const current = prev[chatKey] || [];
+          if (current.some((m) => String(m.uuid).startsWith('stream-'))) {
+            // 流式渲染中，跳过覆盖
+            newMsgCount = -1; // 标记：跳过
+            return prev;
+          }
+          newMsgCount = next.length;
+          return { ...prev, [chatKey]: next };
+        });
+        if (newMsgCount === -1) {
+          // 流式进行中，等待更长时间再检查
+          if (!cancelled) setTimeout(poll, 3000);
+          return;
+        }
+        if (newMsgCount > lastCount) {
           asyncWaitingChatKeyRef.current = null;
           setSendingMessage(false);
           setSendingChatKey(null);
           setEdgeStatus(null);
           return;
         }
-        lastCount = next.length;
+        lastCount = newMsgCount;
       }
       attempts++;
       if (attempts >= maxAttempts) {
@@ -791,6 +808,7 @@ const AppContent: React.FC = () => {
     setSendingMessage(true);
     setSendingChatKey(chatKey);
     setSendError(null);
+    let wasQueued = false;
     try {
       const attachForApi = attachments.length > 0 ? attachments.map((a) => ({ type: a.type, token: a.token })) : undefined;
       if (isGroup) {
@@ -820,8 +838,6 @@ const AppContent: React.FC = () => {
           ...prev,
           [chatKey]: [...(prev[chatKey] || []), aiPlaceholder],
         }));
-
-        let wasQueued = false;
 
         const handleQueued = () => {
           // edge-proxy 已异步接管：移除占位气泡，保持 sending=true 直到 push 推送结果
