@@ -3,7 +3,13 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { PLACEHOLDER, getRandomHeroPlaceholder } from '../lib/placeholder';
 import { ThemePreset } from '../types';
-import { login, register } from '../services/api';
+import {
+  getConfiguredBaseUrl,
+  getDefaultBaseUrl,
+  login,
+  register,
+  setConfiguredBaseUrl,
+} from '../services/api';
 import { setAuth, type AuthState } from '../lib/auth';
 
 interface AuthScreenProps {
@@ -24,6 +30,17 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
   const [inviteCode, setInviteCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [serviceUrl, setServiceUrl] = useState(getConfiguredBaseUrl() ?? getDefaultBaseUrl());
+  const [serviceUrlMessage, setServiceUrlMessage] = useState<string | null>(null);
+  const [showServiceConfig, setShowServiceConfig] = useState(false);
+
+  const serviceUrlHost = useMemo(() => {
+    try {
+      return new URL(serviceUrl).host;
+    } catch {
+      return serviceUrl;
+    }
+  }, [serviceUrl]);
 
   const presets: { id: ThemePreset; name: string; icon: string }[] = [
     { id: 'lumina', name: 'Lumina Dark', icon: 'blur_on' },
@@ -87,6 +104,37 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
     setInviteCode('');
   };
 
+  const handleSaveServiceUrl = () => {
+    const trimmed = serviceUrl.trim();
+    if (!trimmed) {
+      setServiceUrlMessage(language === 'zh' ? '请输入后台服务地址' : 'Please enter backend service URL');
+      return;
+    }
+    try {
+      const parsed = new URL(trimmed);
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        setServiceUrlMessage(language === 'zh' ? '仅支持 http/https 地址' : 'Only http/https URLs are supported');
+        return;
+      }
+      setConfiguredBaseUrl(trimmed);
+      setServiceUrl(parsed.toString().replace(/\/+$/, ''));
+      setServiceUrlMessage(language === 'zh' ? '后台服务地址已保存' : 'Backend service URL saved');
+    } catch {
+      setServiceUrlMessage(language === 'zh' ? '地址格式不正确' : 'Invalid URL format');
+    }
+  };
+
+  const handleResetServiceUrl = () => {
+    setConfiguredBaseUrl(null);
+    const fallback = getDefaultBaseUrl();
+    setServiceUrl(fallback);
+    setServiceUrlMessage(
+      language === 'zh'
+        ? `已恢复默认地址：${fallback}`
+        : `Reset to default URL: ${fallback}`
+    );
+  };
+
   return (
     <div className="w-full flex bg-background-dark relative text-theme-text overflow-hidden" style={{ height: 'var(--vh, 100dvh)', minHeight: 'var(--vh, 100dvh)' }}>
       {/* Global Language & Theme Switchers */}
@@ -125,8 +173,8 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
         </button>
       </div>
 
-      <div className="hidden lg:flex lg:w-1/2 relative flex-col justify-center items-center p-24 border-r border-border-dark overflow-hidden">
-        <div className="absolute top-12 left-12 flex items-center gap-3">
+      <div className="hidden lg:flex lg:w-1/2 relative flex-col items-center p-24 border-r border-border-dark overflow-hidden">
+        <div className="w-full max-w-lg flex items-center gap-3 mb-10 relative z-20">
           <div className="size-10 bg-primary rounded-xl flex items-center justify-center text-white shadow-xl shadow-primary/20">
             <span className="material-symbols-outlined font-bold text-2xl">blur_on</span>
           </div>
@@ -134,14 +182,14 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
         </div>
         
         <div className="relative z-10 max-w-lg text-center">
-          <div className="mb-12 p-1 rounded-3xl bg-gradient-to-br from-primary/30 to-transparent shadow-2xl">
+          <div className="mb-8 p-1 rounded-3xl bg-gradient-to-br from-primary/30 to-transparent shadow-2xl">
             <img 
               src={heroPlaceholder} 
               alt="AI" 
-              className="rounded-2xl w-full h-auto aspect-square object-cover opacity-80"
+              className="rounded-2xl w-full h-auto max-h-[52vh] object-contain opacity-80"
             />
           </div>
-          <h1 className="text-5xl font-extrabold mb-6 leading-tight">
+          <h1 className="text-3xl xl:text-4xl font-extrabold mb-4 leading-tight">
             {t.auth.connect} <span className="text-primary">{t.auth.future}</span>
           </h1>
           <p className="text-secondary text-xl leading-relaxed mb-10 font-medium">
@@ -253,6 +301,68 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
               {mode === 'register' && (
                 <p className="mt-2 text-xs opacity-50">{language === 'zh' ? '至少 8 个字符' : 'At least 8 characters'}</p>
               )}
+            </div>
+            <div>
+              <div className="rounded-xl border border-border-dark bg-surface-dark/50">
+                <button
+                  type="button"
+                  onClick={() => setShowServiceConfig((v) => !v)}
+                  className="w-full px-3 py-2.5 flex items-center justify-between text-left"
+                >
+                  <span className="text-xs font-bold uppercase tracking-widest opacity-70">
+                    {language === 'zh' ? '高级设置：后台服务地址' : 'Advanced: Backend Service URL'}
+                  </span>
+                  <span className="material-symbols-outlined text-base opacity-70">
+                    {showServiceConfig ? 'expand_less' : 'expand_more'}
+                  </span>
+                </button>
+                {!showServiceConfig && (
+                  <div className="px-3 pb-3">
+                    <p className="text-[11px] opacity-60 break-all">{serviceUrlHost}</p>
+                  </div>
+                )}
+                {showServiceConfig && (
+                  <div className="px-3 pb-3 border-t border-border-dark">
+                    <input
+                      type="url"
+                      className="mt-3 w-full px-3 py-3 bg-background-dark border border-border-dark rounded-xl focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all placeholder:opacity-30 text-sm"
+                      value={serviceUrl}
+                      onChange={(e) => {
+                        setServiceUrl(e.target.value);
+                        if (serviceUrlMessage) setServiceUrlMessage(null);
+                      }}
+                      placeholder={getDefaultBaseUrl()}
+                      disabled={loading}
+                    />
+                    <p className="mt-2 text-[10px] opacity-50">
+                      {language === 'zh'
+                        ? `默认使用 .env.local 的 VITE_API_URL（当前默认：${getDefaultBaseUrl()}）`
+                        : `Defaults to VITE_API_URL from .env.local (current default: ${getDefaultBaseUrl()})`}
+                    </p>
+                    {serviceUrlMessage && (
+                      <p className="mt-2 text-xs text-primary">{serviceUrlMessage}</p>
+                    )}
+                    <div className="mt-3 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSaveServiceUrl}
+                        disabled={loading}
+                        className="px-3 py-2 bg-primary hover:opacity-90 disabled:opacity-60 text-white font-bold rounded-lg transition-all text-xs"
+                      >
+                        {language === 'zh' ? '保存地址' : 'Save URL'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleResetServiceUrl}
+                        disabled={loading}
+                        className="px-3 py-2 border border-border-dark rounded-lg text-xs font-bold opacity-80 hover:opacity-100 transition-all"
+                      >
+                        {language === 'zh' ? '恢复默认' : 'Reset Default'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
             <button 
               type="submit"

@@ -153,6 +153,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClose, onUp
               * {t.profile.bioPlaceholder.split('...')[1]}
             </p>
           </div>
+
         </div>
 
         <div className="p-6 bg-black/10 flex justify-end gap-3">

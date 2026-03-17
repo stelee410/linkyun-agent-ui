@@ -5,8 +5,33 @@
 
 import { PLACEHOLDER } from "../lib/placeholder";
 
-export const getBaseUrl = () =>
-  (import.meta.env?.VITE_API_URL as string) || "http://localhost:8080";
+const API_URL_OVERRIDE_STORAGE_KEY = "lumina-api-url-override";
+
+function normalizeBaseUrl(url: string): string {
+  return url.trim().replace(/\/+$/, "");
+}
+
+export const getDefaultBaseUrl = () =>
+  normalizeBaseUrl((import.meta.env?.VITE_API_URL as string) || "http://localhost:8080");
+
+export const getConfiguredBaseUrl = (): string | null => {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(API_URL_OVERRIDE_STORAGE_KEY);
+  if (!raw) return null;
+  const normalized = normalizeBaseUrl(raw);
+  return normalized || null;
+};
+
+export const setConfiguredBaseUrl = (url: string | null) => {
+  if (typeof window === "undefined") return;
+  if (!url || !url.trim()) {
+    window.localStorage.removeItem(API_URL_OVERRIDE_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(API_URL_OVERRIDE_STORAGE_KEY, normalizeBaseUrl(url));
+};
+
+export const getBaseUrl = () => getConfiguredBaseUrl() || getDefaultBaseUrl();
 
 /** 获取分钟级时间戳，用于头像缓存破坏 */
 function getMinuteTimestamp(): number {
