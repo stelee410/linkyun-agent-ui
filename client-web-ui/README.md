@@ -23,10 +23,10 @@ npm run dev
 复制 `.env.local.example` 为 `.env.local`，配置 API 地址：
 
 ```
-NEXT_PUBLIC_API_URL=http://localhost:8080
+NEXT_PUBLIC_API_URL=http://localhost:8081
 ```
 
-确保后端服务已启动（默认端口 8080）。
+确保后端服务已启动（默认端口 8081）。
 
 ## 构建
 

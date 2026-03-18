@@ -789,7 +789,7 @@ export default function AgentEditPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showTestDialog, setShowTestDialog] = useState(false);
   const [showPostMomentDialog, setShowPostMomentDialog] = useState(false);
-  const [middleTab, setMiddleTab] = useState<"fewshot" | "moments" | "model">("fewshot");
+  const [middleTab, setMiddleTab] = useState<"prompt" | "fewshot" | "moments">("prompt");
   const [moments, setMoments] = useState<MomentItem[]>([]);
   const [loadingMoments, setLoadingMoments] = useState(false);
   const [llmProviders, setLlmProviders] = useState<LLMProvider[]>([]);
@@ -1159,6 +1159,12 @@ export default function AgentEditPage() {
     }
   };
 
+  useEffect(() => {
+    if (!auth?.apiKey || !agent || agent.agent_type !== "cloud") return;
+    if (llmProviders.length > 0 || loadingProviders) return;
+    loadLLMProviders();
+  }, [auth?.apiKey, agent?.id, agent?.agent_type, llmProviders.length, loadingProviders]);
+
   const loadAutoSchedule = async () => {
     if (!auth?.apiKey || !agent) return;
     setLoadingAutoSchedule(true);
@@ -1391,9 +1397,6 @@ export default function AgentEditPage() {
               />
             </div>
           </div>
-          <div className="px-4 py-2 border-b border-border">
-            <span className="text-sm text-text-secondary">System Prompt</span>
-          </div>
           {/* Agent 类型选择器 */}
           <div className="px-4 py-3 border-b border-border">
             <div className="flex items-center gap-2 mb-2">
@@ -1594,20 +1597,250 @@ export default function AgentEditPage() {
             </div>
           )}
 
-          <div className="flex-1 min-h-0 flex flex-col bg-slate-50 dark:bg-slate-900/50 border-t border-border">
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="输入 Agent 的人设、规则、背景..."
-              className="flex-1 min-h-[120px] w-full p-4 bg-transparent text-text-primary placeholder-text-secondary resize-none focus:outline-none focus:ring-0 text-sm font-mono"
-              spellCheck={false}
-            />
-          </div>
+          {agent.agent_type === "cloud" && (
+            <div className="flex-1 min-h-0 flex flex-col border-t border-border bg-slate-50 dark:bg-slate-900/50">
+              <div className="px-4 py-2 border-b border-border flex items-center justify-between">
+                <span className="text-sm text-text-secondary">模型配置</span>
+                <button
+                  type="button"
+                  onClick={loadLLMProviders}
+                  className="text-xs text-text-secondary hover:text-text-primary"
+                >
+                  刷新
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-6">
+                {loadingProviders ? (
+                  <div className="text-center text-text-secondary py-8 text-sm">
+                    加载模型列表...
+                  </div>
+                ) : (
+                  <>
+                    {/* 模型选择器 */}
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-text-primary">LLM 模型</label>
+                      <select
+                        value={agent.llm_provider || ""}
+                        onChange={async (e) => {
+                          const newProvider = e.target.value;
+                          setAgent({ ...agent, llm_provider: newProvider || undefined });
+                          if (auth?.apiKey) {
+                            await updateAgent(auth.apiKey, Number(agent.id), {
+                              llm_provider: newProvider || "",
+                            });
+                          }
+                        }}
+                        className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                      >
+                        <option value="">默认（系统设定）</option>
+                        {llmProviders.map((p) => (
+                          <option key={p.name} value={p.name}>
+                            {p.display_name}
+                          </option>
+                        ))}
+                      </select>
+                      {llmProviders.find((p) => p.name === agent.llm_provider)?.description && (
+                        <p className="text-xs text-text-secondary">
+                          {llmProviders.find((p) => p.name === agent.llm_provider)?.description}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Temperature 配置 */}
+                    {(() => {
+                      const selectedProvider = llmProviders.find((p) => p.name === agent.llm_provider);
+                      const skipTemp = selectedProvider?.skip_temperature === true;
+                      
+                      if (skipTemp) {
+                        return (
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-text-primary">Temperature</label>
+                            <p className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 rounded-lg">
+                              所选模型不支持自定义 Temperature，将使用模型默认值
+                            </p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium text-text-primary">Temperature</label>
+                            <label className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={agent.llm_temperature === null || agent.llm_temperature === undefined}
+                                onChange={async (e) => {
+                                  const useDefault = e.target.checked;
+                                  const newTemp = useDefault ? null : 0.7;
+                                  setAgent({ ...agent, llm_temperature: newTemp });
+                                  if (auth?.apiKey) {
+                                    await updateAgent(auth.apiKey, Number(agent.id), {
+                                      llm_temperature: newTemp,
+                                    });
+                                  }
+                                }}
+                                className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
+                              />
+                              使用默认
+                            </label>
+                          </div>
+                          {agent.llm_temperature !== null && agent.llm_temperature !== undefined && (
+                            <div className="space-y-1">
+                              <input
+                                type="range"
+                                min="0"
+                                max="2"
+                                step="0.1"
+                                value={agent.llm_temperature ?? 0.7}
+                                onChange={(e) => {
+                                  const newTemp = parseFloat(e.target.value);
+                                  setAgent({ ...agent, llm_temperature: newTemp });
+                                }}
+                                onMouseUp={async (e) => {
+                                  const newTemp = parseFloat((e.target as HTMLInputElement).value);
+                                  if (auth?.apiKey) {
+                                    await updateAgent(auth.apiKey, Number(agent.id), {
+                                      llm_temperature: newTemp,
+                                    });
+                                  }
+                                }}
+                                onTouchEnd={async (e) => {
+                                  const newTemp = parseFloat((e.target as HTMLInputElement).value);
+                                  if (auth?.apiKey) {
+                                    await updateAgent(auth.apiKey, Number(agent.id), {
+                                      llm_temperature: newTemp,
+                                    });
+                                  }
+                                }}
+                                className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer"
+                              />
+                              <div className="flex justify-between text-xs text-text-secondary">
+                                <span>0（确定性）</span>
+                                <span className="font-medium text-primary">{agent.llm_temperature?.toFixed(1)}</span>
+                                <span>2（创造性）</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* LLM API Key 单独配置（覆盖系统） */}
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-text-primary">LLM API Key（可选）</label>
+                      <p className="text-xs text-text-secondary">
+                        单独设置后覆盖系统配置，该 Agent 的 LLM 调用将使用此 Key
+                      </p>
+                      {(agent.llm_api_key_configured ?? false) ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-green-600 dark:text-green-400">✓ 已单独设置</span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!auth?.apiKey || !agent) return;
+                              const res = await updateAgent(auth.apiKey, Number(agent.id), { llm_api_key: "" });
+                              if (res.success && res.data) setAgent(res.data);
+                            }}
+                            className="text-xs px-2 py-1 text-text-secondary hover:text-text-primary hover:bg-slate-200 dark:hover:bg-slate-700 rounded"
+                          >
+                            清除
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2">
+                          <input
+                            type="password"
+                            id="llm-api-key-input"
+                            placeholder="输入 API Key 覆盖系统配置"
+                            className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-1 focus:ring-primary"
+                            onKeyDown={async (e) => {
+                              if (e.key !== "Enter") return;
+                              const el = document.getElementById("llm-api-key-input") as HTMLInputElement;
+                              const val = el?.value?.trim() ?? "";
+                              if (!auth?.apiKey || !agent || !val) return;
+                              const res = await updateAgent(auth.apiKey, Number(agent.id), { llm_api_key: val });
+                              if (res.success && res.data) {
+                                setAgent(res.data);
+                                el.value = "";
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const el = document.getElementById("llm-api-key-input") as HTMLInputElement;
+                              const val = el?.value?.trim() ?? "";
+                              if (!auth?.apiKey || !agent || !val) return;
+                              const res = await updateAgent(auth.apiKey, Number(agent.id), { llm_api_key: val });
+                              if (res.success && res.data) {
+                                setAgent(res.data);
+                                el.value = "";
+                              }
+                            }}
+                            className="px-3 py-2 text-sm bg-primary text-white rounded-lg hover:opacity-90"
+                          >
+                            保存
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 能力提示信息 */}
+                    {agent.llm_provider && (() => {
+                      const selectedProvider = llmProviders.find((p) => p.name === agent.llm_provider);
+                      if (!selectedProvider) return null;
+
+                      const hasToolCalling = selectedProvider.capabilities?.includes("tool_calling");
+                      const hasVision = selectedProvider.capabilities?.includes("vision");
+                      const warnings: string[] = [];
+
+                      if (!hasToolCalling) {
+                        warnings.push("该模型不支持对话中技能调用（Tool Calling）");
+                      }
+                      if (!hasVision) {
+                        warnings.push("该模型不支持文件上传和图片识别");
+                      }
+
+                      if (warnings.length === 0) return null;
+
+                      return (
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium text-text-primary">能力限制</label>
+                          <div className="space-y-1">
+                            {warnings.map((warning, idx) => (
+                              <div
+                                key={idx}
+                                className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 rounded-lg"
+                              >
+                                <span className="shrink-0">⚠️</span>
+                                <span>{warning}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Middle: Few-shot / Moments */}
+        {/* Middle: System Prompt / Few-shot / Moments */}
         <div className="w-1/3 flex flex-col border-r border-border bg-slate-50/50 dark:bg-slate-900/30 shrink-0">
           <div className="border-b border-border flex items-center">
+            <button
+              onClick={() => setMiddleTab("prompt")}
+              className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                middleTab === "prompt"
+                  ? "text-primary border-b-2 border-primary"
+                  : "text-text-secondary hover:text-text-primary"
+              }`}
+            >
+              System Prompt
+            </button>
             <button
               onClick={() => setMiddleTab("fewshot")}
               className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
@@ -1628,18 +1861,6 @@ export default function AgentEditPage() {
             >
               朋友圈
             </button>
-            {agent?.agent_type === "cloud" && (
-              <button
-                onClick={() => { setMiddleTab("model"); loadLLMProviders(); }}
-                className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
-                  middleTab === "model"
-                    ? "text-primary border-b-2 border-primary"
-                    : "text-text-secondary hover:text-text-primary"
-                }`}
-              >
-                模型配置
-              </button>
-            )}
             {middleTab === "fewshot" && testMessages.length > 0 && (
               <button
                 onClick={handleClearTest}
@@ -1658,6 +1879,18 @@ export default function AgentEditPage() {
               </button>
             )}
           </div>
+
+          {middleTab === "prompt" && (
+            <div className="flex-1 min-h-0 flex flex-col bg-surface">
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="输入 Agent 的人设、规则、背景..."
+                className="flex-1 w-full p-4 bg-transparent text-text-primary placeholder-text-secondary resize-none focus:outline-none focus:ring-0 text-sm font-mono"
+                spellCheck={false}
+              />
+            </div>
+          )}
 
           {middleTab === "fewshot" && (
             <>
@@ -1992,223 +2225,6 @@ export default function AgentEditPage() {
             </div>
           )}
 
-          {middleTab === "model" && agent?.agent_type === "cloud" && (
-            <div className="flex-1 overflow-y-auto p-4 space-y-6">
-              {loadingProviders ? (
-                <div className="text-center text-text-secondary py-8 text-sm">
-                  加载模型列表...
-                </div>
-              ) : (
-                <>
-                  {/* 模型选择器 */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-text-primary">LLM 模型</label>
-                    <select
-                      value={agent.llm_provider || ""}
-                      onChange={async (e) => {
-                        const newProvider = e.target.value;
-                        setAgent({ ...agent, llm_provider: newProvider || undefined });
-                        if (auth?.apiKey) {
-                          await updateAgent(auth.apiKey, Number(agent.id), {
-                            llm_provider: newProvider || "",
-                          });
-                        }
-                      }}
-                      className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                    >
-                      <option value="">默认（系统设定）</option>
-                      {llmProviders.map((p) => (
-                        <option key={p.name} value={p.name}>
-                          {p.display_name}
-                        </option>
-                      ))}
-                    </select>
-                    {llmProviders.find((p) => p.name === agent.llm_provider)?.description && (
-                      <p className="text-xs text-text-secondary">
-                        {llmProviders.find((p) => p.name === agent.llm_provider)?.description}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Temperature 配置 */}
-                  {(() => {
-                    const selectedProvider = llmProviders.find((p) => p.name === agent.llm_provider);
-                    const skipTemp = selectedProvider?.skip_temperature === true;
-                    
-                    if (skipTemp) {
-                      return (
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium text-text-primary">Temperature</label>
-                          <p className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 rounded-lg">
-                            所选模型不支持自定义 Temperature，将使用模型默认值
-                          </p>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <label className="text-sm font-medium text-text-primary">Temperature</label>
-                          <label className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={agent.llm_temperature === null || agent.llm_temperature === undefined}
-                              onChange={async (e) => {
-                                const useDefault = e.target.checked;
-                                const newTemp = useDefault ? null : 0.7;
-                                setAgent({ ...agent, llm_temperature: newTemp });
-                                if (auth?.apiKey) {
-                                  await updateAgent(auth.apiKey, Number(agent.id), {
-                                    llm_temperature: newTemp,
-                                  });
-                                }
-                              }}
-                              className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
-                            />
-                            使用默认
-                          </label>
-                        </div>
-                        {agent.llm_temperature !== null && agent.llm_temperature !== undefined && (
-                          <div className="space-y-1">
-                            <input
-                              type="range"
-                              min="0"
-                              max="2"
-                              step="0.1"
-                              value={agent.llm_temperature ?? 0.7}
-                              onChange={(e) => {
-                                const newTemp = parseFloat(e.target.value);
-                                setAgent({ ...agent, llm_temperature: newTemp });
-                              }}
-                              onMouseUp={async (e) => {
-                                const newTemp = parseFloat((e.target as HTMLInputElement).value);
-                                if (auth?.apiKey) {
-                                  await updateAgent(auth.apiKey, Number(agent.id), {
-                                    llm_temperature: newTemp,
-                                  });
-                                }
-                              }}
-                              onTouchEnd={async (e) => {
-                                const newTemp = parseFloat((e.target as HTMLInputElement).value);
-                                if (auth?.apiKey) {
-                                  await updateAgent(auth.apiKey, Number(agent.id), {
-                                    llm_temperature: newTemp,
-                                  });
-                                }
-                              }}
-                              className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer"
-                            />
-                            <div className="flex justify-between text-xs text-text-secondary">
-                              <span>0（确定性）</span>
-                              <span className="font-medium text-primary">{agent.llm_temperature?.toFixed(1)}</span>
-                              <span>2（创造性）</span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-
-                  {/* LLM API Key 单独配置（覆盖系统） */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-text-primary">LLM API Key（可选）</label>
-                    <p className="text-xs text-text-secondary">
-                      单独设置后覆盖系统配置，该 Agent 的 LLM 调用将使用此 Key
-                    </p>
-                    {(agent.llm_api_key_configured ?? false) ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-green-600 dark:text-green-400">✓ 已单独设置</span>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            if (!auth?.apiKey || !agent) return;
-                            const res = await updateAgent(auth.apiKey, Number(agent.id), { llm_api_key: "" });
-                            if (res.success && res.data) setAgent(res.data);
-                          }}
-                          className="text-xs px-2 py-1 text-text-secondary hover:text-text-primary hover:bg-slate-200 dark:hover:bg-slate-700 rounded"
-                        >
-                          清除
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex gap-2">
-                        <input
-                          type="password"
-                          id="llm-api-key-input"
-                          placeholder="输入 API Key 覆盖系统配置"
-                          className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-1 focus:ring-primary"
-                          onKeyDown={async (e) => {
-                            if (e.key !== "Enter") return;
-                            const el = document.getElementById("llm-api-key-input") as HTMLInputElement;
-                            const val = el?.value?.trim() ?? "";
-                            if (!auth?.apiKey || !agent || !val) return;
-                            const res = await updateAgent(auth.apiKey, Number(agent.id), { llm_api_key: val });
-                            if (res.success && res.data) {
-                              setAgent(res.data);
-                              el.value = "";
-                            }
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            const el = document.getElementById("llm-api-key-input") as HTMLInputElement;
-                            const val = el?.value?.trim() ?? "";
-                            if (!auth?.apiKey || !agent || !val) return;
-                            const res = await updateAgent(auth.apiKey, Number(agent.id), { llm_api_key: val });
-                            if (res.success && res.data) {
-                              setAgent(res.data);
-                              el.value = "";
-                            }
-                          }}
-                          className="px-3 py-2 text-sm bg-primary text-white rounded-lg hover:opacity-90"
-                        >
-                          保存
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 能力提示信息 */}
-                  {agent.llm_provider && (() => {
-                    const selectedProvider = llmProviders.find((p) => p.name === agent.llm_provider);
-                    if (!selectedProvider) return null;
-
-                    const hasToolCalling = selectedProvider.capabilities?.includes("tool_calling");
-                    const hasVision = selectedProvider.capabilities?.includes("vision");
-                    const warnings: string[] = [];
-
-                    if (!hasToolCalling) {
-                      warnings.push("该模型不支持对话中技能调用（Tool Calling）");
-                    }
-                    if (!hasVision) {
-                      warnings.push("该模型不支持文件上传和图片识别");
-                    }
-
-                    if (warnings.length === 0) return null;
-
-                    return (
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-text-primary">能力限制</label>
-                        <div className="space-y-1">
-                          {warnings.map((warning, idx) => (
-                            <div
-                              key={idx}
-                              className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 rounded-lg"
-                            >
-                              <span className="shrink-0">⚠️</span>
-                              <span>{warning}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </>
-              )}
-            </div>
-          )}
         </div>
 
         {/* Right: Skills */}
@@ -2259,8 +2275,8 @@ export default function AgentEditPage() {
                           key={cs.id}
                           className={`rounded-xl border p-2.5 transition-all ${
                             checked
-                              ? "bg-primary/10 border-primary/40"
-                              : "bg-slate-100 dark:bg-slate-800/50 border-border hover:border-primary/50"
+                              ? "bg-primary/20 border-primary shadow-sm ring-1 ring-primary/40"
+                              : "bg-slate-100/80 dark:bg-slate-800/50 border-border hover:border-primary/50"
                           }`}
                         >
                           <div
@@ -2278,6 +2294,15 @@ export default function AgentEditPage() {
                             <div className="text-xs text-text-primary font-medium truncate">{cs.name}</div>
                             <div className="text-[10px] text-text-secondary truncate">{cs.skill_name || `ID: ${cs.id}`}</div>
                             </div>
+                            <span
+                              className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                checked
+                                  ? "bg-primary text-white"
+                                  : "bg-slate-200 dark:bg-slate-700 text-text-secondary"
+                              }`}
+                            >
+                              {checked ? "已启用" : "未启用"}
+                            </span>
                           </div>
                           <div className="flex items-center justify-end gap-3 mt-2 pt-1.5 border-t border-border">
                             <button
@@ -2345,7 +2370,7 @@ export default function AgentEditPage() {
                 </Link>
               </div>
             </div>
-            <div className="p-3 max-h-48 overflow-y-auto">
+            <div className="p-3 max-h-72 overflow-y-auto">
               {creatorSkills.filter((cs) => cs.stage === "mid_conversation").length === 0 ? (
                 <div className="text-center text-text-secondary text-sm py-2">
                   暂无对话中技能，请先在 Marketplace 添加 mid_conversation 类型技能
@@ -2375,8 +2400,8 @@ export default function AgentEditPage() {
                           key={cs.id}
                           className={`rounded-xl border p-2.5 transition-all ${
                             checked
-                              ? "bg-primary/10 border-primary/40"
-                              : "bg-slate-100 dark:bg-slate-800/50 border-border hover:border-primary/50"
+                              ? "bg-primary/20 border-primary shadow-sm ring-1 ring-primary/40"
+                              : "bg-slate-100/80 dark:bg-slate-800/50 border-border hover:border-primary/50"
                           }`}
                         >
                           <div
@@ -2398,6 +2423,15 @@ export default function AgentEditPage() {
                                 <div className="text-[10px] text-amber-400/90 truncate mt-0.5">需要配置</div>
                               )}
                             </div>
+                            <span
+                              className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                checked
+                                  ? "bg-primary text-white"
+                                  : "bg-slate-200 dark:bg-slate-700 text-text-secondary"
+                              }`}
+                            >
+                              {checked ? "已启用" : "未启用"}
+                            </span>
                           </div>
                           <div className="flex items-center justify-end gap-3 mt-2 pt-1.5 border-t border-border flex-wrap">
                             <button
@@ -2507,8 +2541,8 @@ export default function AgentEditPage() {
                           key={cs.id}
                           className={`rounded-xl border p-2.5 transition-all ${
                             checked
-                              ? "bg-primary/10 border-primary/40"
-                              : "bg-slate-100 dark:bg-slate-800/50 border-border hover:border-primary/50"
+                              ? "bg-primary/20 border-primary shadow-sm ring-1 ring-primary/40"
+                              : "bg-slate-100/80 dark:bg-slate-800/50 border-border hover:border-primary/50"
                           }`}
                         >
                           <div
@@ -2526,6 +2560,15 @@ export default function AgentEditPage() {
                             <div className="text-xs text-text-primary font-medium truncate">{cs.name}</div>
                             <div className="text-[10px] text-text-secondary truncate">{cs.skill_name || `ID: ${cs.id}`}</div>
                             </div>
+                            <span
+                              className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                checked
+                                  ? "bg-primary text-white"
+                                  : "bg-slate-200 dark:bg-slate-700 text-text-secondary"
+                              }`}
+                            >
+                              {checked ? "已启用" : "未启用"}
+                            </span>
                           </div>
                           <div className="flex items-center justify-end gap-3 mt-2 pt-1.5 border-t border-border">
                             <button

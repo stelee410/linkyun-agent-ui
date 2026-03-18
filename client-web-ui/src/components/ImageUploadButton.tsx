@@ -5,7 +5,7 @@ import { ImageUploadModal } from "./ImageUploadModal";
 import type { Attachment } from "@/lib/widgets";
 
 const getBaseUrl = () =>
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081";
 
 function getThumbUrl(att: Attachment): string | null {
   const raw = att.preview_url || att.download_url || att.url;

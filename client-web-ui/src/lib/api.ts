@@ -3,8 +3,33 @@
  * 基于现有服务 API 结构
  */
 
-export const getBaseUrl = () =>
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+const API_URL_OVERRIDE_STORAGE_KEY = "linkyun-api-url-override";
+
+function normalizeBaseUrl(url: string): string {
+  return url.trim().replace(/\/+$/, "");
+}
+
+export const getDefaultBaseUrl = () =>
+  normalizeBaseUrl(process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081");
+
+export const getConfiguredBaseUrl = (): string | null => {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(API_URL_OVERRIDE_STORAGE_KEY);
+  if (!raw) return null;
+  const normalized = normalizeBaseUrl(raw);
+  return normalized || null;
+};
+
+export const setConfiguredBaseUrl = (url: string | null) => {
+  if (typeof window === "undefined") return;
+  if (!url || !url.trim()) {
+    window.localStorage.removeItem(API_URL_OVERRIDE_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(API_URL_OVERRIDE_STORAGE_KEY, normalizeBaseUrl(url));
+};
+
+export const getBaseUrl = () => getConfiguredBaseUrl() || getDefaultBaseUrl();
 
 export interface ApiResponse<T = unknown> {
   success: boolean;

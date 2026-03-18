@@ -1,8 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { login, register } from "@/lib/api";
+import {
+  getConfiguredBaseUrl,
+  getDefaultBaseUrl,
+  login,
+  register,
+  setConfiguredBaseUrl,
+} from "@/lib/api";
 import { setAuth } from "@/lib/auth";
 import { UserIcon, LockIcon, EyeIcon, EyeOffIcon } from "@/components/icons";
 
@@ -16,6 +22,11 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [apiServiceUrl, setApiServiceUrl] = useState("");
+
+  useEffect(() => {
+    setApiServiceUrl(getConfiguredBaseUrl() || getDefaultBaseUrl());
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,6 +34,24 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
+      const nextApiServiceUrl = apiServiceUrl.trim();
+      if (!nextApiServiceUrl) {
+        setError("请输入 API Service 地址");
+        setLoading(false);
+        return;
+      }
+      try {
+        const u = new URL(nextApiServiceUrl);
+        if (!["http:", "https:"].includes(u.protocol)) {
+          throw new Error("invalid protocol");
+        }
+      } catch {
+        setError("API Service 地址格式无效，请使用 http(s)://");
+        setLoading(false);
+        return;
+      }
+      setConfiguredBaseUrl(nextApiServiceUrl);
+
       let res;
       if (mode === "login") {
         res = await login(username.trim(), password);
@@ -48,7 +77,7 @@ export default function LoginPage() {
     }
   };
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+  const apiUrl = apiServiceUrl || getDefaultBaseUrl();
 
   return (
     <div className="min-h-screen flex">
@@ -169,6 +198,21 @@ export default function LoginPage() {
                   {showPassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
                 </button>
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm text-text-secondary mb-1">API Service</label>
+              <input
+                type="text"
+                value={apiServiceUrl}
+                onChange={(e) => setApiServiceUrl(e.target.value)}
+                placeholder="http://localhost:8081"
+                className="w-full px-3 py-2.5 bg-surface border border-border rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                required
+              />
+              <p className="text-xs text-text-secondary mt-1">
+                登录前可切换到不同后端服务，地址会保存在当前浏览器。
+              </p>
             </div>
 
             {mode === "login" && (

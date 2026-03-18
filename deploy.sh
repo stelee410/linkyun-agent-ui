@@ -55,3 +55,7 @@ done
 scp -o StrictHostKeyChecking=accept-new "${ZIP_FILES[@]}" "$REMOTE:$REMOTE_DIR/"
 
 echo ">>> 上传完成。远端目录: $REMOTE:$REMOTE_DIR/"
+
+ssh root@47.76.253.198 "cd ~ && ./deploy.sh"
+
+echo ">>> 远程部署完成"

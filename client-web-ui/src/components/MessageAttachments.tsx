@@ -3,7 +3,7 @@
 import type { MessageAttachment } from "@/lib/api";
 
 const getBaseUrl = () =>
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081";
 
 function getPreviewUrl(att: MessageAttachment): string {
   if (att.preview_url) {

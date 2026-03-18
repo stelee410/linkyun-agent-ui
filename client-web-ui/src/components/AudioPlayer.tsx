@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081";
 
 /** 将相对路径（/api/v1/...）转为指向后端的完整 URL */
 function resolveAudioSrc(src: string): string {

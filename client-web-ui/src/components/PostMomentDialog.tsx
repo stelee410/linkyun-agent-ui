@@ -11,7 +11,7 @@ import {
 const MAX_IMAGES = 9;
 
 const getBaseUrl = () =>
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081";
 
 interface UploadedImage {
   token: string;
