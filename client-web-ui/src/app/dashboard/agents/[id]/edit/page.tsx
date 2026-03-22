@@ -789,7 +789,7 @@ export default function AgentEditPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showTestDialog, setShowTestDialog] = useState(false);
   const [showPostMomentDialog, setShowPostMomentDialog] = useState(false);
-  const [middleTab, setMiddleTab] = useState<"prompt" | "fewshot" | "moments">("prompt");
+  const [middleTab, setMiddleTab] = useState<"prompt" | "fewshot" | "moments" | "model">("prompt");
   const [moments, setMoments] = useState<MomentItem[]>([]);
   const [loadingMoments, setLoadingMoments] = useState(false);
   const [llmProviders, setLlmProviders] = useState<LLMProvider[]>([]);
@@ -1597,269 +1597,50 @@ export default function AgentEditPage() {
             </div>
           )}
 
-          {agent.agent_type === "cloud" && (
-            <div className="flex-1 min-h-0 flex flex-col border-t border-border bg-slate-50 dark:bg-slate-900/50">
-              <div className="px-4 py-2 border-b border-border flex items-center justify-between">
-                <span className="text-sm text-text-secondary">模型配置</span>
-                <button
-                  type="button"
-                  onClick={loadLLMProviders}
-                  className="text-xs text-text-secondary hover:text-text-primary"
-                >
-                  刷新
-                </button>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-6">
-                {loadingProviders ? (
-                  <div className="text-center text-text-secondary py-8 text-sm">
-                    加载模型列表...
-                  </div>
-                ) : (
-                  <>
-                    {/* 模型选择器 */}
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-text-primary">LLM 模型</label>
-                      <select
-                        value={agent.llm_provider || ""}
-                        onChange={async (e) => {
-                          const newProvider = e.target.value;
-                          setAgent({ ...agent, llm_provider: newProvider || undefined });
-                          if (auth?.apiKey) {
-                            await updateAgent(auth.apiKey, Number(agent.id), {
-                              llm_provider: newProvider || "",
-                            });
-                          }
-                        }}
-                        className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                      >
-                        <option value="">默认（系统设定）</option>
-                        {llmProviders.map((p) => (
-                          <option key={p.name} value={p.name}>
-                            {p.display_name}
-                          </option>
-                        ))}
-                      </select>
-                      {llmProviders.find((p) => p.name === agent.llm_provider)?.description && (
-                        <p className="text-xs text-text-secondary">
-                          {llmProviders.find((p) => p.name === agent.llm_provider)?.description}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Temperature 配置 */}
-                    {(() => {
-                      const selectedProvider = llmProviders.find((p) => p.name === agent.llm_provider);
-                      const skipTemp = selectedProvider?.skip_temperature === true;
-                      
-                      if (skipTemp) {
-                        return (
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium text-text-primary">Temperature</label>
-                            <p className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 rounded-lg">
-                              所选模型不支持自定义 Temperature，将使用模型默认值
-                            </p>
-                          </div>
-                        );
-                      }
-
-                      return (
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <label className="text-sm font-medium text-text-primary">Temperature</label>
-                            <label className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={agent.llm_temperature === null || agent.llm_temperature === undefined}
-                                onChange={async (e) => {
-                                  const useDefault = e.target.checked;
-                                  const newTemp = useDefault ? null : 0.7;
-                                  setAgent({ ...agent, llm_temperature: newTemp });
-                                  if (auth?.apiKey) {
-                                    await updateAgent(auth.apiKey, Number(agent.id), {
-                                      llm_temperature: newTemp,
-                                    });
-                                  }
-                                }}
-                                className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
-                              />
-                              使用默认
-                            </label>
-                          </div>
-                          {agent.llm_temperature !== null && agent.llm_temperature !== undefined && (
-                            <div className="space-y-1">
-                              <input
-                                type="range"
-                                min="0"
-                                max="2"
-                                step="0.1"
-                                value={agent.llm_temperature ?? 0.7}
-                                onChange={(e) => {
-                                  const newTemp = parseFloat(e.target.value);
-                                  setAgent({ ...agent, llm_temperature: newTemp });
-                                }}
-                                onMouseUp={async (e) => {
-                                  const newTemp = parseFloat((e.target as HTMLInputElement).value);
-                                  if (auth?.apiKey) {
-                                    await updateAgent(auth.apiKey, Number(agent.id), {
-                                      llm_temperature: newTemp,
-                                    });
-                                  }
-                                }}
-                                onTouchEnd={async (e) => {
-                                  const newTemp = parseFloat((e.target as HTMLInputElement).value);
-                                  if (auth?.apiKey) {
-                                    await updateAgent(auth.apiKey, Number(agent.id), {
-                                      llm_temperature: newTemp,
-                                    });
-                                  }
-                                }}
-                                className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer"
-                              />
-                              <div className="flex justify-between text-xs text-text-secondary">
-                                <span>0（确定性）</span>
-                                <span className="font-medium text-primary">{agent.llm_temperature?.toFixed(1)}</span>
-                                <span>2（创造性）</span>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
-
-                    {/* LLM API Key 单独配置（覆盖系统） */}
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-text-primary">LLM API Key（可选）</label>
-                      <p className="text-xs text-text-secondary">
-                        单独设置后覆盖系统配置，该 Agent 的 LLM 调用将使用此 Key
-                      </p>
-                      {(agent.llm_api_key_configured ?? false) ? (
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-green-600 dark:text-green-400">✓ 已单独设置</span>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              if (!auth?.apiKey || !agent) return;
-                              const res = await updateAgent(auth.apiKey, Number(agent.id), { llm_api_key: "" });
-                              if (res.success && res.data) setAgent(res.data);
-                            }}
-                            className="text-xs px-2 py-1 text-text-secondary hover:text-text-primary hover:bg-slate-200 dark:hover:bg-slate-700 rounded"
-                          >
-                            清除
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex gap-2">
-                          <input
-                            type="password"
-                            id="llm-api-key-input"
-                            placeholder="输入 API Key 覆盖系统配置"
-                            className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-1 focus:ring-primary"
-                            onKeyDown={async (e) => {
-                              if (e.key !== "Enter") return;
-                              const el = document.getElementById("llm-api-key-input") as HTMLInputElement;
-                              const val = el?.value?.trim() ?? "";
-                              if (!auth?.apiKey || !agent || !val) return;
-                              const res = await updateAgent(auth.apiKey, Number(agent.id), { llm_api_key: val });
-                              if (res.success && res.data) {
-                                setAgent(res.data);
-                                el.value = "";
-                              }
-                            }}
-                          />
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              const el = document.getElementById("llm-api-key-input") as HTMLInputElement;
-                              const val = el?.value?.trim() ?? "";
-                              if (!auth?.apiKey || !agent || !val) return;
-                              const res = await updateAgent(auth.apiKey, Number(agent.id), { llm_api_key: val });
-                              if (res.success && res.data) {
-                                setAgent(res.data);
-                                el.value = "";
-                              }
-                            }}
-                            className="px-3 py-2 text-sm bg-primary text-white rounded-lg hover:opacity-90"
-                          >
-                            保存
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 能力提示信息 */}
-                    {agent.llm_provider && (() => {
-                      const selectedProvider = llmProviders.find((p) => p.name === agent.llm_provider);
-                      if (!selectedProvider) return null;
-
-                      const hasToolCalling = selectedProvider.capabilities?.includes("tool_calling");
-                      const hasVision = selectedProvider.capabilities?.includes("vision");
-                      const warnings: string[] = [];
-
-                      if (!hasToolCalling) {
-                        warnings.push("该模型不支持对话中技能调用（Tool Calling）");
-                      }
-                      if (!hasVision) {
-                        warnings.push("该模型不支持文件上传和图片识别");
-                      }
-
-                      if (warnings.length === 0) return null;
-
-                      return (
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium text-text-primary">能力限制</label>
-                          <div className="space-y-1">
-                            {warnings.map((warning, idx) => (
-                              <div
-                                key={idx}
-                                className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 rounded-lg"
-                              >
-                                <span className="shrink-0">⚠️</span>
-                                <span>{warning}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </>
-                )}
-              </div>
-            </div>
-          )}
         </div>
 
-        {/* Middle: System Prompt / Few-shot / Moments */}
+        {/* Middle: System Prompt / Few-shot / Moments / Model */}
         <div className="w-1/3 flex flex-col border-r border-border bg-slate-50/50 dark:bg-slate-900/30 shrink-0">
           <div className="border-b border-border flex items-center">
             <button
               onClick={() => setMiddleTab("prompt")}
-              className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
                 middleTab === "prompt"
                   ? "text-primary border-b-2 border-primary"
                   : "text-text-secondary hover:text-text-primary"
               }`}
             >
-              System Prompt
+              Prompt
             </button>
             <button
               onClick={() => setMiddleTab("fewshot")}
-              className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
                 middleTab === "fewshot"
                   ? "text-primary border-b-2 border-primary"
                   : "text-text-secondary hover:text-text-primary"
               }`}
             >
-              Few-shot 示例
+              Few-shot
             </button>
             <button
               onClick={() => { setMiddleTab("moments"); loadMoments(); loadAutoSchedule(); }}
-              className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
                 middleTab === "moments"
                   ? "text-primary border-b-2 border-primary"
                   : "text-text-secondary hover:text-text-primary"
               }`}
             >
               朋友圈
+            </button>
+            <button
+              onClick={() => setMiddleTab("model")}
+              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
+                middleTab === "model"
+                  ? "text-primary border-b-2 border-primary"
+                  : "text-text-secondary hover:text-text-primary"
+              }`}
+            >
+              模型
             </button>
             {middleTab === "fewshot" && testMessages.length > 0 && (
               <button
@@ -2221,6 +2002,268 @@ export default function AgentEditPage() {
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+          )}
+
+          {middleTab === "model" && (
+            <div className="flex-1 overflow-y-auto p-4 space-y-5">
+              {agent.agent_type !== "cloud" ? (
+                <p className="text-sm text-text-secondary text-center py-8">
+                  Edge 模式下大模型配置由本地代理决定
+                </p>
+              ) : (
+                <>
+                  {/* Provider 类型 */}
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-text-primary">Provider</label>
+                    <select
+                      value={agent.llm_provider_type || ""}
+                      onChange={async (e) => {
+                        const val = e.target.value;
+                        setAgent({ ...agent, llm_provider_type: val || undefined });
+                        if (auth?.apiKey) {
+                          await updateAgent(auth.apiKey, Number(agent.id), { llm_provider_type: val });
+                        }
+                      }}
+                      className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    >
+                      <option value="">默认（系统设定）</option>
+                      <option value="openai">OpenAI 兼容协议</option>
+                      <option value="anthropic">Anthropic 兼容协议</option>
+                      <option value="gemini">Google Gemini</option>
+                    </select>
+                    {!agent.llm_provider_type && (
+                      <p className="text-xs text-text-secondary">不选择则使用系统配置的默认大模型</p>
+                    )}
+                  </div>
+
+                  {/* Model Name */}
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-text-primary">Model Name</label>
+                    <input
+                      type="text"
+                      list="model-name-suggestions"
+                      value={agent.llm_model_name || ""}
+                      placeholder="留空使用默认"
+                      onChange={(e) => setAgent({ ...agent, llm_model_name: e.target.value })}
+                      onBlur={async (e) => {
+                        if (auth?.apiKey) {
+                          await updateAgent(auth.apiKey, Number(agent.id), { llm_model_name: e.target.value });
+                        }
+                      }}
+                      className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                    <datalist id="model-name-suggestions">
+                      {(() => {
+                        const t = agent.llm_provider_type;
+                        if (t === "openai") return <>
+                          <option value="gpt-4.1" />
+                          <option value="gpt-4.1-mini" />
+                          <option value="gpt-4o" />
+                          <option value="gpt-4o-mini" />
+                          <option value="gpt-5" />
+                          <option value="o4-mini" />
+                          <option value="o3" />
+                          <option value="o3-mini" />
+                          <option value="o1" />
+                          <option value="glm-5" />
+                          <option value="glm-4.7" />
+                          <option value="qwen3-max" />
+                          <option value="qwen3.5-plus" />
+                          <option value="doubao-seed-2-0-pro-260215" />
+                          <option value="doubao-seed-2-0-lite-260215" />
+                          <option value="deepseek-chat" />
+                          <option value="deepseek-reasoner" />
+                        </>;
+                        if (t === "anthropic") return <>
+                          <option value="claude-opus-4-20250514" />
+                          <option value="claude-sonnet-4-20250514" />
+                          <option value="claude-3-7-sonnet-20250219" />
+                          <option value="claude-3-5-haiku-20241022" />
+                          <option value="MiniMax-M2.5" />
+                        </>;
+                        if (t === "gemini") return <>
+                          <option value="gemini-2.5-pro-preview-03-25" />
+                          <option value="gemini-2.0-flash" />
+                          <option value="gemini-2.0-flash-lite" />
+                          <option value="gemini-1.5-pro" />
+                          <option value="gemini-1.5-flash" />
+                        </>;
+                        return <>
+                          <option value="gpt-4.1" />
+                          <option value="gpt-5" />
+                          <option value="claude-opus-4-20250514" />
+                          <option value="claude-sonnet-4-20250514" />
+                          <option value="gemini-2.5-pro-preview-03-25" />
+                          <option value="gemini-2.0-flash" />
+                          <option value="qwen3-max" />
+                          <option value="doubao-seed-2-0-pro-260215" />
+                          <option value="deepseek-chat" />
+                        </>;
+                      })()}
+                    </datalist>
+                  </div>
+
+                  {/* Base URL */}
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-text-primary">Base URL</label>
+                    <input
+                      type="text"
+                      list="base-url-suggestions"
+                      value={agent.llm_base_url || ""}
+                      placeholder="留空使用 Provider 默认地址"
+                      onChange={(e) => setAgent({ ...agent, llm_base_url: e.target.value })}
+                      onBlur={async (e) => {
+                        if (auth?.apiKey) {
+                          await updateAgent(auth.apiKey, Number(agent.id), { llm_base_url: e.target.value });
+                        }
+                      }}
+                      className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-1 focus:ring-primary font-mono"
+                    />
+                    <datalist id="base-url-suggestions">
+                      {(() => {
+                        const t = agent.llm_provider_type;
+                        if (t === "openai") return <>
+                          <option value="https://api.openai.com/v1" />
+                          <option value="https://open.bigmodel.cn/api/paas/v4" />
+                          <option value="https://dashscope.aliyuncs.com/compatible-mode/v1" />
+                          <option value="https://ark.cn-beijing.volces.com/api/v3" />
+                          <option value="https://api.minimaxi.com/v1" />
+                          <option value="https://api.deepseek.com/v1" />
+                        </>;
+                        if (t === "anthropic") return <>
+                          <option value="https://api.anthropic.com" />
+                          <option value="https://api.minimaxi.com/anthropic" />
+                        </>;
+                        if (t === "gemini") return <>
+                          <option value="https://generativelanguage.googleapis.com" />
+                        </>;
+                        return <>
+                          <option value="https://api.openai.com/v1" />
+                          <option value="https://api.anthropic.com" />
+                          <option value="https://generativelanguage.googleapis.com" />
+                        </>;
+                      })()}
+                    </datalist>
+                  </div>
+
+                  {/* API Key */}
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-text-primary">API Key</label>
+                    <p className="text-xs text-text-secondary">
+                      留空则使用系统配置的 Key；填写后仅该 Agent 生效
+                    </p>
+                    {(agent.llm_api_key_configured ?? false) ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-green-600 dark:text-green-400">✓ 已单独设置</span>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!auth?.apiKey || !agent) return;
+                            const res = await updateAgent(auth.apiKey, Number(agent.id), { llm_api_key: "" });
+                            if (res.success && res.data) setAgent(res.data);
+                          }}
+                          className="text-xs px-2 py-1 text-text-secondary hover:text-text-primary hover:bg-slate-200 dark:hover:bg-slate-700 rounded"
+                        >
+                          清除
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <input
+                          type="password"
+                          id="llm-api-key-input"
+                          placeholder="输入 API Key"
+                          className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-1 focus:ring-primary"
+                          onKeyDown={async (e) => {
+                            if (e.key !== "Enter") return;
+                            const el = document.getElementById("llm-api-key-input") as HTMLInputElement;
+                            const val = el?.value?.trim() ?? "";
+                            if (!auth?.apiKey || !agent || !val) return;
+                            const res = await updateAgent(auth.apiKey, Number(agent.id), { llm_api_key: val });
+                            if (res.success && res.data) {
+                              setAgent(res.data);
+                              el.value = "";
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const el = document.getElementById("llm-api-key-input") as HTMLInputElement;
+                            const val = el?.value?.trim() ?? "";
+                            if (!auth?.apiKey || !agent || !val) return;
+                            const res = await updateAgent(auth.apiKey, Number(agent.id), { llm_api_key: val });
+                            if (res.success && res.data) {
+                              setAgent(res.data);
+                              el.value = "";
+                            }
+                          }}
+                          className="px-3 py-2 text-sm bg-primary text-white rounded-lg hover:opacity-90"
+                        >
+                          保存
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Temperature */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium text-text-primary">Temperature</label>
+                      <label className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={agent.llm_temperature === null || agent.llm_temperature === undefined}
+                          onChange={async (e) => {
+                            const useDefault = e.target.checked;
+                            const newTemp = useDefault ? null : 0.7;
+                            setAgent({ ...agent, llm_temperature: newTemp });
+                            if (auth?.apiKey) {
+                              await updateAgent(auth.apiKey, Number(agent.id), { llm_temperature: newTemp });
+                            }
+                          }}
+                          className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
+                        />
+                        使用默认
+                      </label>
+                    </div>
+                    {agent.llm_temperature !== null && agent.llm_temperature !== undefined && (
+                      <div className="space-y-1">
+                        <input
+                          type="range"
+                          min="0"
+                          max="2"
+                          step="0.1"
+                          value={agent.llm_temperature ?? 0.7}
+                          onChange={(e) => {
+                            const newTemp = parseFloat(e.target.value);
+                            setAgent({ ...agent, llm_temperature: newTemp });
+                          }}
+                          onMouseUp={async (e) => {
+                            const newTemp = parseFloat((e.target as HTMLInputElement).value);
+                            if (auth?.apiKey) {
+                              await updateAgent(auth.apiKey, Number(agent.id), { llm_temperature: newTemp });
+                            }
+                          }}
+                          onTouchEnd={async (e) => {
+                            const newTemp = parseFloat((e.target as HTMLInputElement).value);
+                            if (auth?.apiKey) {
+                              await updateAgent(auth.apiKey, Number(agent.id), { llm_temperature: newTemp });
+                            }
+                          }}
+                          className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer"
+                        />
+                        <div className="flex justify-between text-xs text-text-secondary">
+                          <span>0（确定性）</span>
+                          <span className="font-medium text-primary">{agent.llm_temperature?.toFixed(1)}</span>
+                          <span>2（创造性）</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           )}

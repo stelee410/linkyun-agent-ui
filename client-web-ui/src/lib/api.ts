@@ -95,6 +95,9 @@ export interface Agent {
   config?: AgentConfig;
   llm_provider?: string;
   llm_temperature?: number | null;
+  llm_provider_type?: string;
+  llm_base_url?: string;
+  llm_model_name?: string;
 }
 
 export interface LLMProvider {
@@ -626,6 +629,9 @@ export async function updateAgent(
     knowledge_base_id?: number | null;
     llm_provider?: string;
     llm_temperature?: number | null;
+    llm_provider_type?: string;
+    llm_base_url?: string;
+    llm_model_name?: string;
     workspace_id?: number;
   }
 ) {
@@ -646,6 +652,9 @@ export async function updateAgent(
   if (data.knowledge_base_id !== undefined) body.knowledge_base_id = data.knowledge_base_id;
   if (data.llm_provider !== undefined) body.llm_provider = data.llm_provider;
   if (data.llm_temperature !== undefined) body.llm_temperature = data.llm_temperature;
+  if (data.llm_provider_type !== undefined) body.llm_provider_type = data.llm_provider_type;
+  if (data.llm_base_url !== undefined) body.llm_base_url = data.llm_base_url;
+  if (data.llm_model_name !== undefined) body.llm_model_name = data.llm_model_name;
   if (data.workspace_id !== undefined) body.workspace_id = data.workspace_id;
   return request<Agent>(`/agents/${id}`, {
     method: "PUT",
