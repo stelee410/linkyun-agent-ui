@@ -2084,7 +2084,11 @@ export default function AgentEditPage() {
                           <option value="MiniMax-M2.5" />
                         </>;
                         if (t === "gemini") return <>
+                          <option value="gemini-3.1-flash-lite-preview" />
+                          <option value="gemini-3-flash-preview" />
+                          <option value="gemini-3-pro-preview" />
                           <option value="gemini-2.5-pro-preview-03-25" />
+                          <option value="gemini-2.5-flash" />
                           <option value="gemini-2.0-flash" />
                           <option value="gemini-2.0-flash-lite" />
                           <option value="gemini-1.5-pro" />

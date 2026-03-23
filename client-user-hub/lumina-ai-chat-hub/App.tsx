@@ -393,10 +393,25 @@ const AppContent: React.FC = () => {
                 : c
             )
           );
+          // User is actively viewing this group chat while receiving messages — mark as read
+          markSessionRead(auth.apiKey, gId);
+          setUnreadCounts((prev) => {
+            if (!prev[String(gId)]) return prev;
+            const next = { ...prev };
+            delete next[String(gId)];
+            return next;
+          });
         }
         if (!res.data.processing) {
           // 最后一轮做一次全量刷新，避免 after 增量轮询在状态切换边界漏掉最终回复。
           await refreshFullGroupMessages();
+          markSessionRead(auth.apiKey, gId);
+          setUnreadCounts((prev) => {
+            if (!prev[String(gId)]) return prev;
+            const next = { ...prev };
+            delete next[String(gId)];
+            return next;
+          });
           setGroupPolling(null);
           setSendingMessage(false);
           return;

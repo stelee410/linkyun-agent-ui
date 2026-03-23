@@ -28,6 +28,16 @@ import { AddIcon, EditIcon, VisibilityIcon, DeleteIcon, ChatIcon, ScheduleIcon, 
 import { Modal } from "@/components/ui/Modal";
 import { getAgentStatusDisplay, filterAgentsByStatus, countAgentsByStatus } from "@/lib/agentStatus";
 
+/** 获取 Agent 卡片的模型显示名：优先 llm_model_name / llm_provider.model，否则 agent.model */
+function getDisplayModel(agent: Agent, llmProviders: LLMProvider[]): string {
+  if (agent.llm_provider_type && agent.llm_model_name) return agent.llm_model_name;
+  if (agent.llm_provider) {
+    const p = llmProviders.find((x) => x.name === agent.llm_provider);
+    if (p?.model) return p.model;
+  }
+  return agent.model || "";
+}
+
 export default function DashboardPage() {
   const auth = getAuth();
   const searchParams = useSearchParams();
@@ -591,7 +601,7 @@ export default function DashboardPage() {
                 </div>
                 <h3 className="text-lg font-bold text-text-primary mb-1">{agent.name}</h3>
                 <p className="text-sm text-text-secondary mb-4 line-clamp-2">
-                  {[agent.code, agent.description || agent.model].filter(Boolean).join(" · ") || agent.status}
+                  {[agent.code, agent.description || (agent.agent_type === "edge" ? "Edge" : getDisplayModel(agent, llmProviders))].filter(Boolean).join(" · ") || agent.status}
                 </p>
                 <div className="flex items-center gap-2 pt-4 border-t border-border flex-wrap">
                   {agent.agent_type === "edge" ? (
@@ -602,7 +612,9 @@ export default function DashboardPage() {
                     <span className="px-2 py-0.5 bg-surface border border-border text-text-secondary text-[10px] rounded">
                       {agent.llm_provider
                         ? llmProviders.find((p) => p.name === agent.llm_provider)?.display_name || agent.llm_provider
-                        : "系统指定模型"}
+                        : agent.llm_provider_type
+                          ? { openai: "OpenAI", anthropic: "Claude", gemini: "Gemini" }[agent.llm_provider_type] || agent.llm_provider_type
+                          : "系统指定模型"}
                     </span>
                   )}
                 </div>
