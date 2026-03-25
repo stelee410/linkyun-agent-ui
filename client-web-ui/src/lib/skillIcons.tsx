@@ -16,6 +16,8 @@ export const skillCategoryMap: Record<string, string> = {
   get_current_time: "time",
   search_web: "search",
   calculator: "calculator",
+  motherland_optimize_prompt: "prompt",
+  motherland_generate_avatar: "image",
 };
 
 const iconClass = (size: "sm" | "lg") => (size === "sm" ? "w-5 h-5" : "w-10 h-10");

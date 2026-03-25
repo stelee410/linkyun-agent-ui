@@ -98,6 +98,8 @@ export interface Agent {
   llm_provider_type?: string;
   llm_base_url?: string;
   llm_model_name?: string;
+  /** 服务端返回，用于头像 URL 缓存破坏 */
+  updated_at?: string;
 }
 
 export interface LLMProvider {
@@ -123,9 +125,14 @@ function getSecondTimestamp(): number {
 export function getAgentAvatar(agent: Agent): string | null {
   const av = agent.config?.metadata?.avatar;
   if (!av || typeof av !== "string") return null;
-  // 路径格式（新）：如 "1.jpg" - 使用秒级时间戳以便更快看到更新
+  // 路径格式（新）：如 "1.jpg" — 优先用 updated_at 破坏缓存（上传/接受 AI 头像后立即刷新）
   if (!av.startsWith("data:")) {
-    return `${getBaseUrl()}/api/v1/avatars/${av}?t=${getSecondTimestamp()}`;
+    let bust = getSecondTimestamp();
+    if (typeof agent.updated_at === "string" && agent.updated_at) {
+      const ms = new Date(agent.updated_at).getTime();
+      if (!Number.isNaN(ms)) bust = ms;
+    }
+    return `${getBaseUrl()}/api/v1/avatars/${encodeURIComponent(av)}?t=${bust}`;
   }
   return av;
 }
@@ -139,17 +146,46 @@ export async function uploadAgentAvatar(apiKey: string, agentId: number, file: B
     headers: { "X-API-Key": apiKey },
     body: form,
   });
-  const json = await res.json();
+  const json = (await res.json()) as { success?: boolean; data?: Agent; error?: { message?: string } };
   if (!res.ok) {
     return { success: false as const, error: json.error || { message: `HTTP ${res.status}` } };
   }
-  return { success: true as const, data: json as Agent };
+  const data = json.data;
+  if (!data) {
+    return { success: false as const, error: { message: "Invalid response: missing agent data" } };
+  }
+  return { success: true as const, data };
 }
 
 export async function deleteAgentAvatar(apiKey: string, agentId: number) {
   return request<Agent>(`/agents/${agentId}/avatar`, {
     method: "DELETE",
     apiKey,
+  });
+}
+
+/** AI 生成头像预览（与 Motherland「生成头像」技能相同管线，需已配置 Nano Banana） */
+export async function generateAgentAvatarPreview(apiKey: string, agentId: number, prompt: string) {
+  return request<{ image_url: string }>(`/agents/${agentId}/avatar/generate-preview`, {
+    method: "POST",
+    apiKey,
+    body: JSON.stringify({ prompt }),
+  });
+}
+
+/** 依据当前提示词稿、Motherland 对话与近期人机对话优化 system prompt；调用使用系统 Motherland Agent 的 LLM（非被编辑 Agent 的模型） */
+export async function optimizeAgentNarrative(
+  apiKey: string,
+  agentId: number,
+  body: { baseline_prompt?: string; instruction?: string }
+) {
+  return request<{ optimized_prompt: string }>(`/agents/${agentId}/optimize-narrative`, {
+    method: "POST",
+    apiKey,
+    body: JSON.stringify({
+      baseline_prompt: body.baseline_prompt ?? "",
+      instruction: body.instruction ?? "",
+    }),
   });
 }
 
@@ -169,11 +205,15 @@ export async function uploadCreatorAvatar(apiKey: string, file: Blob) {
     headers: { "X-API-Key": apiKey },
     body: form,
   });
-  const json = await res.json();
+  const json = (await res.json()) as { success?: boolean; data?: Creator; error?: { message?: string } };
   if (!res.ok) {
     return { success: false as const, error: json.error || { message: `HTTP ${res.status}` } };
   }
-  return { success: true as const, data: json as Creator };
+  const data = json.data;
+  if (!data) {
+    return { success: false as const, error: { message: "Invalid response: missing profile data" } };
+  }
+  return { success: true as const, data };
 }
 
 export async function deleteCreatorAvatar(apiKey: string) {

@@ -192,6 +192,7 @@ export function AvatarUpload({
         >
           {avatar ? (
             <img
+              key={avatar}
               src={avatar}
               alt="头像"
               className="w-full h-full object-cover"

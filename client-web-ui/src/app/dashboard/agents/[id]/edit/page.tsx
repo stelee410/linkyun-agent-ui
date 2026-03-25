@@ -42,6 +42,9 @@ import {
   generateAutoTalkTopic,
   getMotherlandChatHistory,
   resetMotherlandChat,
+  generateAgentAvatarPreview,
+  optimizeAgentNarrative,
+  uploadAgentAvatar,
   type MomentItem,
   type LLMProvider,
   type MomentAutoScheduleResult,
@@ -61,6 +64,22 @@ interface DisplayMessage {
 import { SkillIconBadge } from "@/lib/skillIcons";
 
 const SEARCHABLE_ENUM_THRESHOLD = 15;
+
+/** 生成头像预览图 src（相对路径加 API 根与 preview=1 便于 img 内联展示） */
+function buildAvatarPreviewSrc(imageUrl: string): string {
+  if (!imageUrl) return "";
+  if (
+    imageUrl.startsWith("data:") ||
+    imageUrl.startsWith("http://") ||
+    imageUrl.startsWith("https://")
+  ) {
+    return imageUrl;
+  }
+  const base = getBaseUrl();
+  const path = imageUrl.startsWith("/") ? imageUrl : `/${imageUrl}`;
+  const sep = path.includes("?") ? "&" : "?";
+  return `${base}${path}${sep}preview=1`;
+}
 
 function SearchableEnumSelect({
   value,
@@ -854,6 +873,17 @@ export default function AgentEditPage() {
   const [motherlandTopicModalOpen, setMotherlandTopicModalOpen] = useState(false);
   const [motherlandTopicGenerating, setMotherlandTopicGenerating] = useState(false);
   const [motherlandHistoryLoaded, setMotherlandHistoryLoaded] = useState(false);
+  const [motherlandAvatarModalOpen, setMotherlandAvatarModalOpen] = useState(false);
+  const [motherlandAvatarPrompt, setMotherlandAvatarPrompt] = useState("");
+  const [motherlandAvatarGenerating, setMotherlandAvatarGenerating] = useState(false);
+  const [motherlandAvatarAccepting, setMotherlandAvatarAccepting] = useState(false);
+  const [motherlandAvatarPreviewPath, setMotherlandAvatarPreviewPath] = useState<string | null>(null);
+  const [motherlandAvatarError, setMotherlandAvatarError] = useState("");
+  const [motherlandNarrativeModalOpen, setMotherlandNarrativeModalOpen] = useState(false);
+  const [motherlandNarrativeInstruction, setMotherlandNarrativeInstruction] = useState("");
+  const [motherlandNarrativeResult, setMotherlandNarrativeResult] = useState("");
+  const [motherlandNarrativeGenerating, setMotherlandNarrativeGenerating] = useState(false);
+  const [motherlandNarrativeError, setMotherlandNarrativeError] = useState("");
   const motherlandAbortRef = useRef(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const motherlandEndRef = useRef<HTMLDivElement>(null);
@@ -892,6 +922,11 @@ export default function AgentEditPage() {
       }
     });
   }, [auth?.apiKey, pathname]);
+
+  // 用于「对话中技能」区展示 Motherland 专属技能（无需打开 Talk To Motherland 标签）
+  useEffect(() => {
+    getMotherlandStatus().then(setMotherlandStatus).catch(() => setMotherlandStatus(null));
+  }, []);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -982,6 +1017,112 @@ export default function AgentEditPage() {
       // ignore
     } finally {
       setMotherlandTopicGenerating(false);
+    }
+  };
+
+  const openMotherlandAvatarModal = () => {
+    setMotherlandAvatarError("");
+    setMotherlandAvatarPreviewPath(null);
+    setMotherlandAvatarModalOpen(true);
+  };
+
+  const openMotherlandNarrativeModal = () => {
+    setMotherlandNarrativeError("");
+    setMotherlandNarrativeResult("");
+    setMotherlandNarrativeModalOpen(true);
+  };
+
+  const handleMotherlandNarrativeGenerate = async () => {
+    if (!auth?.apiKey) return;
+    setMotherlandNarrativeGenerating(true);
+    setMotherlandNarrativeError("");
+    try {
+      const res = await optimizeAgentNarrative(auth.apiKey, Number(agentId), {
+        baseline_prompt: prompt,
+        instruction: motherlandNarrativeInstruction,
+      });
+      if (res.success && res.data?.optimized_prompt) {
+        setMotherlandNarrativeResult(res.data.optimized_prompt);
+      } else {
+        setMotherlandNarrativeError(res.error?.message || "优化失败");
+      }
+    } catch {
+      setMotherlandNarrativeError("优化失败");
+    } finally {
+      setMotherlandNarrativeGenerating(false);
+    }
+  };
+
+  const handleMotherlandNarrativeApply = () => {
+    const next = motherlandNarrativeResult.trim();
+    if (!next) return;
+    setPrompt(next);
+    setMiddleTab("prompt");
+    setMotherlandNarrativeModalOpen(false);
+    setMotherlandNarrativeResult("");
+    setMotherlandNarrativeInstruction("");
+    setMotherlandNarrativeError("");
+  };
+
+  const handleMotherlandAvatarGenerate = async () => {
+    const p = motherlandAvatarPrompt.trim();
+    if (!p || !auth?.apiKey) return;
+    setMotherlandAvatarGenerating(true);
+    setMotherlandAvatarError("");
+    try {
+      const res = await generateAgentAvatarPreview(auth.apiKey, Number(agentId), p);
+      if (res.success && res.data?.image_url) {
+        setMotherlandAvatarPreviewPath(res.data.image_url);
+      } else {
+        setMotherlandAvatarError(res.error?.message || "生成失败");
+      }
+    } catch {
+      setMotherlandAvatarError("生成失败");
+    } finally {
+      setMotherlandAvatarGenerating(false);
+    }
+  };
+
+  const handleMotherlandAvatarAccept = async () => {
+    if (!motherlandAvatarPreviewPath || !auth?.apiKey) return;
+    setMotherlandAvatarAccepting(true);
+    setMotherlandAvatarError("");
+    try {
+      const raw = motherlandAvatarPreviewPath;
+      let fetchUrl: string;
+      if (raw.startsWith("data:")) {
+        fetchUrl = raw;
+      } else if (raw.startsWith("http://") || raw.startsWith("https://")) {
+        fetchUrl = raw.includes("?") ? `${raw}&preview=1` : `${raw}?preview=1`;
+      } else {
+        const base = getBaseUrl();
+        const path = raw.startsWith("/") ? raw : `/${raw}`;
+        fetchUrl = `${base}${path}${path.includes("?") ? "&" : "?"}preview=1`;
+      }
+      const imgRes = await fetch(fetchUrl);
+      if (!imgRes.ok) {
+        setMotherlandAvatarError("下载预览图失败，请重试");
+        return;
+      }
+      const blob = await imgRes.blob();
+      const file = new File([blob], "avatar.jpg", { type: blob.type || "image/jpeg" });
+      const up = await uploadAgentAvatar(auth.apiKey, Number(agentId), file);
+      if (up.success && up.data) {
+        setAgent(up.data);
+        setMotherlandAvatarModalOpen(false);
+        setMotherlandAvatarPreviewPath(null);
+        setMotherlandAvatarPrompt("");
+      } else {
+        setMotherlandAvatarError(
+          typeof up.error === "object" && up.error && "message" in up.error
+            ? String((up.error as { message: string }).message)
+            : "上传头像失败"
+        );
+      }
+    } catch {
+      setMotherlandAvatarError("接受头像时出错");
+    } finally {
+      setMotherlandAvatarAccepting(false);
     }
   };
 
@@ -2408,22 +2549,55 @@ export default function AgentEditPage() {
                   Motherland 尚未配置，请联系管理员
                 </div>
               ) : motherlandStatus.agent_id && Number(agentId) === motherlandStatus.agent_id ? (
-                <div className="flex-1 flex items-center justify-center text-text-primary text-base font-medium p-4">
-                  你已经是Motherland
+                <div className="flex-1 flex flex-col items-center justify-center text-text-primary text-base font-medium p-4 gap-5">
+                  <p>你已经是 Motherland</p>
+                  <div className="flex flex-wrap items-center justify-center gap-3">
+                    <button
+                      type="button"
+                      onClick={openMotherlandAvatarModal}
+                      className="px-5 py-2.5 border border-primary text-primary hover:bg-primary/10 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      生成头像
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openMotherlandNarrativeModal}
+                      className="px-5 py-2.5 border border-primary text-primary hover:bg-primary/10 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      优化你的叙事
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <>
                   <div className="flex-1 overflow-y-auto p-4 space-y-4">
                     {motherlandMessages.length === 0 && !motherlandAutoRunning ? (
-                      <div className="flex-1 flex flex-col items-center justify-center text-text-secondary text-sm py-12 gap-4">
+                      <div className="flex-1 flex flex-col items-center justify-center text-text-secondary text-sm py-12 gap-5">
                         <p>点击播放键，开始与 Motherland 的自动对话</p>
-                        <button
-                          type="button"
-                          onClick={() => { setMotherlandTopic(""); setMotherlandTopicModalOpen(true); }}
-                          className="w-16 h-16 flex items-center justify-center rounded-full bg-primary hover:opacity-90 text-white transition-colors shadow-lg"
-                        >
-                          <svg width="24" height="28" viewBox="0 0 16 18" fill="currentColor"><path d="M15 9L1 17.66V0.34L15 9Z" /></svg>
-                        </button>
+                        <div className="flex flex-wrap items-center justify-center gap-4">
+                          <button
+                            type="button"
+                            onClick={() => { setMotherlandTopic(""); setMotherlandTopicModalOpen(true); }}
+                            className="w-16 h-16 flex items-center justify-center rounded-full bg-primary hover:opacity-90 text-white transition-colors shadow-lg"
+                            title="开始自动对话"
+                          >
+                            <svg width="24" height="28" viewBox="0 0 16 18" fill="currentColor"><path d="M15 9L1 17.66V0.34L15 9Z" /></svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={openMotherlandAvatarModal}
+                            className="px-5 py-3 rounded-full border-2 border-primary text-primary hover:bg-primary/10 text-sm font-medium transition-colors"
+                          >
+                            生成头像
+                          </button>
+                          <button
+                            type="button"
+                            onClick={openMotherlandNarrativeModal}
+                            className="px-5 py-3 rounded-full border-2 border-primary text-primary hover:bg-primary/10 text-sm font-medium transition-colors"
+                          >
+                            优化你的叙事
+                          </button>
+                        </div>
                       </div>
                     ) : (
                       <>
@@ -2467,16 +2641,32 @@ export default function AgentEditPage() {
                   </div>
                   {/* Bottom controls */}
                   {(motherlandAutoRunning || motherlandMessages.length > 0) && (
-                    <div className="p-3 border-t border-border flex justify-center gap-3">
+                    <div className="p-3 border-t border-border flex flex-wrap justify-center items-center gap-3">
                       {motherlandAutoRunning ? (
-                        <button
-                          type="button"
-                          onClick={() => { motherlandAbortRef.current = true; }}
-                          className="w-10 h-10 flex items-center justify-center rounded-full bg-red-500 hover:bg-red-600 text-white transition-colors"
-                          title="停止"
-                        >
-                          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect width="14" height="14" rx="2" /></svg>
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => { motherlandAbortRef.current = true; }}
+                            className="w-10 h-10 flex items-center justify-center rounded-full bg-red-500 hover:bg-red-600 text-white transition-colors"
+                            title="停止"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect width="14" height="14" rx="2" /></svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={openMotherlandAvatarModal}
+                            className="px-4 py-2 rounded-lg border border-primary text-primary hover:bg-primary/10 text-sm font-medium transition-colors"
+                          >
+                            生成头像
+                          </button>
+                          <button
+                            type="button"
+                            onClick={openMotherlandNarrativeModal}
+                            className="px-4 py-2 rounded-lg border border-primary text-primary hover:bg-primary/10 text-sm font-medium transition-colors"
+                          >
+                            优化你的叙事
+                          </button>
+                        </>
                       ) : (
                         <>
                           <button
@@ -2486,6 +2676,20 @@ export default function AgentEditPage() {
                           >
                             <svg width="12" height="14" viewBox="0 0 16 18" fill="currentColor"><path d="M15 9L1 17.66V0.34L15 9Z" /></svg>
                             继续
+                          </button>
+                          <button
+                            type="button"
+                            onClick={openMotherlandAvatarModal}
+                            className="px-5 py-2 rounded-lg border border-primary text-primary hover:bg-primary/10 text-sm font-medium transition-colors"
+                          >
+                            生成头像
+                          </button>
+                          <button
+                            type="button"
+                            onClick={openMotherlandNarrativeModal}
+                            className="px-5 py-2 rounded-lg border border-primary text-primary hover:bg-primary/10 text-sm font-medium transition-colors"
+                          >
+                            优化你的叙事
                           </button>
                           <button
                             type="button"
@@ -2546,6 +2750,184 @@ export default function AgentEditPage() {
                             className="flex-1 px-4 py-2.5 bg-primary hover:opacity-90 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
                           >
                             开始对话
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {motherlandAvatarModalOpen && (
+                    <div
+                      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+                      onClick={() => {
+                        if (!motherlandAvatarGenerating && !motherlandAvatarAccepting) {
+                          setMotherlandAvatarModalOpen(false);
+                        }
+                      }}
+                    >
+                      <div
+                        className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-[440px] max-w-full max-h-[90vh] overflow-y-auto p-6"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <h3 className="text-base font-semibold text-text-primary mb-1">生成头像</h3>
+                        <p className="text-xs text-text-secondary mb-4">
+                          图像能力委托给系统 <strong className="text-text-primary">Motherland Agent</strong> 账号下已配置的 nanobanana_image（Google AI Studio API Key），无需在你本账号重复配置。若本 Agent 已上传过头像，会作为参考图传入。并自动注入 system prompt、Motherland 对话、记忆与最近人机会话摘要；下方为你的外观补充说明。生成后可接受为新头像，或重新生成。
+                        </p>
+                        <textarea
+                          value={motherlandAvatarPrompt}
+                          onChange={(e) => setMotherlandAvatarPrompt(e.target.value)}
+                          placeholder="描述头像：例如「年轻女性，短发，微笑，商务休闲」"
+                          rows={3}
+                          disabled={motherlandAvatarGenerating || motherlandAvatarAccepting}
+                          className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-border rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary resize-none text-sm mb-3"
+                        />
+                        {motherlandAvatarError && (
+                          <p className="text-sm text-red-500 mb-3">{motherlandAvatarError}</p>
+                        )}
+                        {motherlandAvatarPreviewPath && (
+                          <div className="mb-4 flex flex-col items-center gap-2">
+                            <p className="text-xs text-text-secondary self-start">预览</p>
+                            <div className="w-40 h-40 rounded-full overflow-hidden border-2 border-border bg-slate-100 dark:bg-slate-900 shrink-0">
+                              <img
+                                src={buildAvatarPreviewSrc(motherlandAvatarPreviewPath)}
+                                alt="头像预览"
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          </div>
+                        )}
+                        <div className="flex flex-col gap-2">
+                          <button
+                            type="button"
+                            onClick={handleMotherlandAvatarGenerate}
+                            disabled={
+                              !motherlandAvatarPrompt.trim() || motherlandAvatarGenerating || motherlandAvatarAccepting
+                            }
+                            className="w-full px-4 py-2.5 bg-primary hover:opacity-90 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                          >
+                            {motherlandAvatarGenerating ? (
+                              <>
+                                <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                生成中…
+                              </>
+                            ) : motherlandAvatarPreviewPath ? (
+                              "重新生成"
+                            ) : (
+                              "生成预览"
+                            )}
+                          </button>
+                          {motherlandAvatarPreviewPath && (
+                            <button
+                              type="button"
+                              onClick={handleMotherlandAvatarAccept}
+                              disabled={motherlandAvatarAccepting || motherlandAvatarGenerating}
+                              className="w-full px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                            >
+                              {motherlandAvatarAccepting ? (
+                                <>
+                                  <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                  正在保存…
+                                </>
+                              ) : (
+                                "接受为 Agent 头像"
+                              )}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            disabled={motherlandAvatarGenerating || motherlandAvatarAccepting}
+                            onClick={() => {
+                              setMotherlandAvatarModalOpen(false);
+                              setMotherlandAvatarPreviewPath(null);
+                              setMotherlandAvatarError("");
+                            }}
+                            className="w-full px-4 py-2.5 border border-border rounded-lg text-sm text-text-secondary hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors"
+                          >
+                            关闭
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {motherlandNarrativeModalOpen && (
+                    <div
+                      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+                      onClick={() => {
+                        if (!motherlandNarrativeGenerating) {
+                          setMotherlandNarrativeModalOpen(false);
+                        }
+                      }}
+                    >
+                      <div
+                        className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-[min(520px,100%)] max-h-[90vh] overflow-y-auto p-6"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <h3 className="text-base font-semibold text-text-primary mb-1">优化你的叙事</h3>
+                        <p className="text-xs text-text-secondary mb-4">
+                          将使用系统 <strong className="text-text-primary">Motherland Agent</strong> 已配置的对话模型（与被编辑 Agent 的模型无关），依据当前「提示词」标签中的草稿（含未保存内容）、你与
+                          Motherland 的对话摘录，以及近期与终端用户的对话摘录，生成一版可直接使用的 system prompt。可在下方补充本次优化侧重（可选）。
+                        </p>
+                        <textarea
+                          value={motherlandNarrativeInstruction}
+                          onChange={(e) => setMotherlandNarrativeInstruction(e.target.value)}
+                          placeholder="可选：例如「更突出幽默感」「收紧回答长度」「强调某条安全边界」"
+                          rows={2}
+                          disabled={motherlandNarrativeGenerating}
+                          className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-border rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary resize-none text-sm mb-3"
+                        />
+                        {motherlandNarrativeError && (
+                          <p className="text-sm text-red-500 mb-3">{motherlandNarrativeError}</p>
+                        )}
+                        {motherlandNarrativeResult && (
+                          <div className="mb-3">
+                            <p className="text-xs text-text-secondary mb-1">优化结果</p>
+                            <textarea
+                              value={motherlandNarrativeResult}
+                              onChange={(e) => setMotherlandNarrativeResult(e.target.value)}
+                              rows={12}
+                              className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-border rounded-lg text-text-primary text-sm font-mono leading-relaxed resize-y min-h-[200px] focus:outline-none focus:ring-2 focus:ring-primary"
+                            />
+                          </div>
+                        )}
+                        <div className="flex flex-col gap-2">
+                          <button
+                            type="button"
+                            onClick={handleMotherlandNarrativeGenerate}
+                            disabled={motherlandNarrativeGenerating}
+                            className="w-full px-4 py-2.5 bg-primary hover:opacity-90 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                          >
+                            {motherlandNarrativeGenerating ? (
+                              <>
+                                <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                优化中…
+                              </>
+                            ) : motherlandNarrativeResult ? (
+                              "重新生成"
+                            ) : (
+                              "开始优化"
+                            )}
+                          </button>
+                          {motherlandNarrativeResult.trim() && (
+                            <button
+                              type="button"
+                              onClick={handleMotherlandNarrativeApply}
+                              className="w-full px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors"
+                            >
+                              应用到提示词
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            disabled={motherlandNarrativeGenerating}
+                            onClick={() => {
+                              setMotherlandNarrativeModalOpen(false);
+                              setMotherlandNarrativeResult("");
+                              setMotherlandNarrativeError("");
+                            }}
+                            className="w-full px-4 py-2.5 border border-border rounded-lg text-sm text-text-secondary hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors"
+                          >
+                            关闭
                           </button>
                         </div>
                       </div>
@@ -2702,15 +3084,34 @@ export default function AgentEditPage() {
               </div>
             </div>
             <div className="p-3 max-h-72 overflow-y-auto">
-              {creatorSkills.filter((cs) => cs.stage === "mid_conversation").length === 0 ? (
-                <div className="text-center text-text-secondary text-sm py-2">
-                  暂无对话中技能，请先在 Marketplace 添加 mid_conversation 类型技能
-                </div>
-              ) : (
+              {(() => {
+                const midMarket = creatorSkills.filter((cs) => cs.stage === "mid_conversation");
+                const isMotherlandPageAgent =
+                  motherlandStatus?.configured &&
+                  motherlandStatus.agent_id != null &&
+                  Number(agentId) === motherlandStatus.agent_id;
+                const motherlandExclusiveMid = [
+                  {
+                    skill_name: "motherland_optimize_prompt",
+                    title: "优化提示词",
+                    hint: "系统内置，不在技能广场展示；仅当前 Motherland 对话中可用。",
+                  },
+                  {
+                    skill_name: "motherland_generate_avatar",
+                    title: "生成头像",
+                    hint: "系统内置；需创作者已配置并启用 Nano Banana 等图像技能。",
+                  },
+                ];
+                if (midMarket.length === 0 && !isMotherlandPageAgent) {
+                  return (
+                    <div className="text-center text-text-secondary text-sm py-2">
+                      暂无对话中技能，请先在 Marketplace 添加 mid_conversation 类型技能
+                    </div>
+                  );
+                }
+                return (
                 <div className="grid grid-cols-2 gap-2">
-                  {creatorSkills
-                    .filter((cs) => cs.stage === "mid_conversation")
-                    .map((cs) => {
+                  {midMarket.map((cs) => {
                       const sel = selectedMidSkills.find((p) => p.creator_skill_id === cs.id);
                       const checked = !!sel;
                       const hasConfig = !!(cs.config_schema?.properties && Object.keys(cs.config_schema.properties).length > 0);
@@ -2815,8 +3216,26 @@ export default function AgentEditPage() {
                         </div>
                       );
                     })}
+                  {isMotherlandPageAgent &&
+                    motherlandExclusiveMid.map((m) => (
+                      <div
+                        key={m.skill_name}
+                        className="rounded-xl border border-dashed border-primary/35 p-2.5 bg-primary/5 dark:bg-primary/10"
+                      >
+                        <div className="flex items-center gap-2">
+                          <SkillIconBadge skillName={m.skill_name} active />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs text-text-primary font-medium truncate">{m.title}</div>
+                            <div className="text-[10px] text-text-secondary truncate font-mono">{m.skill_name}</div>
+                            <div className="text-[10px] text-text-secondary mt-1 leading-snug">{m.hint}</div>
+                          </div>
+                        </div>
+                        <div className="text-[10px] text-primary/90 mt-2 font-medium">Motherland 专属 · 已启用</div>
+                      </div>
+                    ))}
                 </div>
-              )}
+                );
+              })()}
             </div>
           </div>
 
