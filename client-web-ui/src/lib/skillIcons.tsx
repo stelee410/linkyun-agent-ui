@@ -10,6 +10,7 @@ export const skillCategoryMap: Record<string, string> = {
   image_upload: "input",
   document_upload: "input",
   file_upload: "input",
+  nanobanana_image: "image",
   role_reinforcement: "prompt",
   weather_api: "api",
   get_current_time: "time",
@@ -41,6 +42,11 @@ function createIcons(size: "sm" | "lg"): Record<string, ReactNode> {
         <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
         <circle cx="9" cy="9" r="2" />
         <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+      </svg>
+    ),
+    image: (
+      <svg className={c} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3 10 8 5 9l4 4-1 5 5-2 4 4 1-5 5-1-4-4 2-5Z" />
       </svg>
     ),
     prompt: (
@@ -100,6 +106,7 @@ export const skillColorMap: Record<string, { bg: string; text: string }> = {
   voice: { bg: "bg-indigo-500/20", text: "text-indigo-400" },
   safety: { bg: "bg-rose-500/20", text: "text-rose-400" },
   input: { bg: "bg-sky-500/20", text: "text-sky-400" },
+  image: { bg: "bg-pink-500/20", text: "text-pink-400" },
   prompt: { bg: "bg-amber-500/20", text: "text-amber-400" },
   api: { bg: "bg-emerald-500/20", text: "text-emerald-400" },
   time: { bg: "bg-cyan-500/20", text: "text-cyan-400" },
@@ -113,6 +120,7 @@ export const skillCardColorMap: Record<string, { bg: string; text: string; hover
   voice: { bg: "bg-indigo-500/20", text: "text-indigo-600 dark:text-indigo-400", hoverBg: "group-hover:bg-indigo-500/30" },
   safety: { bg: "bg-rose-500/20", text: "text-rose-600 dark:text-rose-400", hoverBg: "group-hover:bg-rose-500/30" },
   input: { bg: "bg-sky-500/20", text: "text-sky-600 dark:text-sky-400", hoverBg: "group-hover:bg-sky-500/30" },
+  image: { bg: "bg-pink-500/20", text: "text-pink-600 dark:text-pink-400", hoverBg: "group-hover:bg-pink-500/30" },
   prompt: { bg: "bg-amber-500/20", text: "text-amber-600 dark:text-amber-400", hoverBg: "group-hover:bg-amber-500/30" },
   api: { bg: "bg-emerald-500/20", text: "text-emerald-600 dark:text-emerald-400", hoverBg: "group-hover:bg-emerald-500/30" },
   time: { bg: "bg-cyan-500/20", text: "text-cyan-600 dark:text-cyan-400", hoverBg: "group-hover:bg-cyan-500/30" },

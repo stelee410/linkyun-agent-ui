@@ -36,6 +36,8 @@ import {
   generateMomentAutoSchedule,
   getMomentAutoSchedule,
   deleteMomentAutoSchedule,
+  getMotherlandStatus,
+  talkToMotherland,
   type MomentItem,
   type LLMProvider,
   type MomentAutoScheduleResult,
@@ -789,7 +791,7 @@ export default function AgentEditPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showTestDialog, setShowTestDialog] = useState(false);
   const [showPostMomentDialog, setShowPostMomentDialog] = useState(false);
-  const [middleTab, setMiddleTab] = useState<"prompt" | "fewshot" | "moments" | "model">("prompt");
+  const [middleTab, setMiddleTab] = useState<"prompt" | "fewshot" | "moments" | "model" | "motherland">("prompt");
   const [moments, setMoments] = useState<MomentItem[]>([]);
   const [loadingMoments, setLoadingMoments] = useState(false);
   const [llmProviders, setLlmProviders] = useState<LLMProvider[]>([]);
@@ -841,7 +843,12 @@ export default function AgentEditPage() {
   } | null>(null);
   const [twoTabGlobalSaving, setTwoTabGlobalSaving] = useState(false);
   const [tokenCopied, setTokenCopied] = useState(false);
+  const [motherlandStatus, setMotherlandStatus] = useState<{ configured: boolean; agent_id?: number } | null>(null);
+  const [motherlandMessages, setMotherlandMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [motherlandInput, setMotherlandInput] = useState("");
+  const [motherlandSending, setMotherlandSending] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const motherlandEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!auth?.apiKey || !agentId) return;
@@ -881,6 +888,17 @@ export default function AgentEditPage() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [testMessages]);
+
+  useEffect(() => {
+    motherlandEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [motherlandMessages]);
+
+  // Load motherland status when opening Talk To Motherland tab
+  useEffect(() => {
+    if (middleTab === "motherland") {
+      getMotherlandStatus().then(setMotherlandStatus).catch(() => setMotherlandStatus(null));
+    }
+  }, [middleTab]);
 
   // 技能选择/参数变更时立即保存到数据库，无需单独点保存
   const savePreSkillsToDb = async (next: { creator_skill_id: number }[]) => {
@@ -1642,6 +1660,16 @@ export default function AgentEditPage() {
             >
               模型
             </button>
+            <button
+              onClick={() => setMiddleTab("motherland")}
+              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
+                middleTab === "motherland"
+                  ? "text-primary border-b-2 border-primary"
+                  : "text-text-secondary hover:text-text-primary"
+              }`}
+            >
+              Talk To Motherland
+            </button>
             {middleTab === "fewshot" && testMessages.length > 0 && (
               <button
                 onClick={handleClearTest}
@@ -2267,6 +2295,112 @@ export default function AgentEditPage() {
                       </div>
                     )}
                   </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {middleTab === "motherland" && (
+            <div className="flex-1 min-h-0 flex flex-col bg-surface">
+              {motherlandStatus === null ? (
+                <div className="flex-1 flex items-center justify-center text-text-secondary text-sm">
+                  加载中...
+                </div>
+              ) : !motherlandStatus.configured ? (
+                <div className="flex-1 flex items-center justify-center text-text-secondary text-sm p-4">
+                  Motherland 尚未配置，请联系管理员
+                </div>
+              ) : motherlandStatus.agent_id && Number(agentId) === motherlandStatus.agent_id ? (
+                <div className="flex-1 flex items-center justify-center text-text-primary text-base font-medium p-4">
+                  你已经是Motherland
+                </div>
+              ) : (
+                <>
+                  <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                    {motherlandMessages.length === 0 ? (
+                      <div className="text-center text-text-secondary text-sm py-12">
+                        以当前 Agent 的身份与 Motherland 对话，输入消息开始
+                      </div>
+                    ) : (
+                      motherlandMessages.map((msg, i) => (
+                        <div
+                          key={i}
+                          className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                        >
+                          <div
+                            className={`max-w-[85%] px-4 py-2 rounded-xl ${
+                              msg.role === "user"
+                                ? "bg-primary text-white"
+                                : "bg-slate-200 dark:bg-slate-700 text-text-primary"
+                            }`}
+                          >
+                            <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                    {motherlandSending && (
+                      <div className="flex justify-start">
+                        <div className="px-4 py-2 rounded-xl bg-slate-200 dark:bg-slate-700 text-text-secondary text-sm flex items-center gap-2">
+                          <span className="inline-block w-2 h-2 rounded-full bg-text-secondary animate-pulse" />
+                          <span className="inline-block w-2 h-2 rounded-full bg-text-secondary animate-pulse [animation-delay:0.2s]" />
+                          <span className="inline-block w-2 h-2 rounded-full bg-text-secondary animate-pulse [animation-delay:0.4s]" />
+                          <span className="ml-1">Motherland 正在回复...</span>
+                        </div>
+                      </div>
+                    )}
+                    <div ref={motherlandEndRef} />
+                  </div>
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const text = motherlandInput.trim();
+                      if (!text || !auth?.apiKey || motherlandSending) return;
+                      setMotherlandMessages((prev) => [...prev, { role: "user", content: text }]);
+                      setMotherlandInput("");
+                      setMotherlandSending(true);
+                      try {
+                        const res = await talkToMotherland(auth.apiKey, Number(agentId), text);
+                        if (res.success && res.data?.content) {
+                          setMotherlandMessages((prev) => [
+                            ...prev,
+                            { role: "assistant", content: res.data!.content },
+                          ]);
+                        } else {
+                          setMotherlandMessages((prev) => [
+                            ...prev,
+                            { role: "assistant", content: `发送失败：${res.error?.message ?? "未知错误"}` },
+                          ]);
+                        }
+                      } catch (err) {
+                        setMotherlandMessages((prev) => [
+                          ...prev,
+                          { role: "assistant", content: `发送失败：${err instanceof Error ? err.message : "网络错误"}` },
+                        ]);
+                      } finally {
+                        setMotherlandSending(false);
+                      }
+                    }}
+                    className="p-4 border-t border-border"
+                  >
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={motherlandInput}
+                        onChange={(e) => setMotherlandInput(e.target.value)}
+                        placeholder="输入消息与 Motherland 对话..."
+                        disabled={motherlandSending}
+                        className="flex-1 px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-border rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+                      />
+                      <button
+                        type="submit"
+                        disabled={motherlandSending || !motherlandInput.trim()}
+                        className="px-5 py-2.5 bg-primary hover:opacity-90 disabled:opacity-50 text-white rounded-lg font-medium"
+                      >
+                        {motherlandSending ? "发送中..." : "发送"}
+                      </button>
+                    </div>
+                  </form>
                 </>
               )}
             </div>

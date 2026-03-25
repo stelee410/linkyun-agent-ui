@@ -354,6 +354,8 @@ export interface Session {
   title?: string | null;
   /** 是否为群聊会话 */
   is_group?: boolean;
+  /** 会话类型：H2A=人机对话, A2A=机机对话(Talk to mother land) */
+  session_type?: string;
 }
 
 export interface SharedUser {
@@ -404,6 +406,8 @@ export interface SendMessageResponse {
   usage?: { input_tokens: number; output_tokens: number; total_tokens: number };
   audio_url?: string;
   docx_url?: string;
+  /** 生成的图片 URL（如 nanobanana_image 技能） */
+  image_url?: string;
   /** 回复中附带的图片链接（引用用户消息的附件） */
   attachments?: MessageAttachment[];
 }
@@ -500,6 +504,28 @@ export async function refreshWorkspaceInviteCode(apiKey: string, workspaceCode: 
     method: "POST",
     apiKey,
     workspaceCode,
+  });
+}
+
+// ============ 系统状态（公开接口，无需认证） ============
+
+export interface MotherlandStatus {
+  configured: boolean;
+  agent_id?: number; // 当 configured 时返回 Motherland Agent ID
+}
+
+export async function getMotherlandStatus(): Promise<MotherlandStatus> {
+  const res = await fetch(`${getBaseUrl()}/api/v1/system/motherland-status`);
+  const data = await res.json();
+  return data as MotherlandStatus;
+}
+
+/** 与 Motherland 对话（创作者认证，用于 Agent 编辑页 Talk To Motherland） */
+export async function talkToMotherland(apiKey: string, agentId: number, content: string): Promise<ApiResponse<{ content: string }>> {
+  return request<{ content: string }>("/system/talk-to-motherland", {
+    method: "POST",
+    apiKey,
+    body: JSON.stringify({ content, agent_id: agentId }),
   });
 }
 

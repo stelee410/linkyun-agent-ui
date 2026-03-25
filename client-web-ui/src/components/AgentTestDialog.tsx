@@ -38,6 +38,7 @@ interface TestMessage {
   content: string;
   audio_url?: string;
   docx_url?: string;
+  image_url?: string;
   attachments?: MessageAttachment[];
 }
 
@@ -202,6 +203,7 @@ export function AgentTestDialog({
             content: res.data!.content,
             audio_url: res.data!.audio_url,
             docx_url: res.data!.docx_url,
+            image_url: res.data!.image_url,
             attachments: res.data!.attachments,
           },
         ]);
@@ -322,6 +324,16 @@ export function AgentTestDialog({
                     <VoiceMessage content={msg.content} audioUrl={msg.audio_url} />
                   ) : (
                     <p className="whitespace-pre-wrap">{msg.content}</p>
+                  )}
+                  {msg.image_url && (
+                    <div className="mt-2">
+                      <img
+                        src={msg.image_url.startsWith("http") || msg.image_url.startsWith("data:") ? msg.image_url : `${getBaseUrl()}${msg.image_url}`}
+                        alt="生成的图片"
+                        className="max-w-full rounded-lg border border-border"
+                        style={{ maxHeight: "320px" }}
+                      />
+                    </div>
                   )}
                   {msg.docx_url && (
                     <a

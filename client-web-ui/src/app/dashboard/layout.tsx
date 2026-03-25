@@ -5,7 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { clearAuth } from "@/lib/auth";
 import { useAuth } from "@/hooks/useAuth";
-import { getProfile, getCreatorAvatar, type Creator } from "@/lib/api";
+import { getProfile, getCreatorAvatar, getMotherlandStatus, type Creator } from "@/lib/api";
 import { ThemePicker } from "@/components/ThemePicker";
 import { DashboardAgentCountsProvider } from "@/contexts/DashboardAgentCountsContext";
 import { WorkspaceProvider } from "@/contexts/WorkspaceContext";
@@ -25,6 +25,7 @@ export default function DashboardLayout({
   const [searchQuery, setSearchQuery] = useState("");
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [creator, setCreator] = useState<Creator | null>(null);
+  const [motherlandConfigured, setMotherlandConfigured] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (isReady && !auth?.apiKey) {
@@ -42,6 +43,12 @@ export default function DashboardLayout({
   useEffect(() => {
     if (!auth?.apiKey) return;
     refreshCreator();
+  }, [auth?.apiKey]);
+
+  useEffect(() => {
+    getMotherlandStatus()
+      .then((res) => setMotherlandConfigured(res.configured))
+      .catch(() => setMotherlandConfigured(null));
   }, [auth?.apiKey]);
 
   useEffect(() => {
@@ -166,6 +173,14 @@ export default function DashboardLayout({
           </div>
         </div>
       </header>
+
+      {motherlandConfigured === false && (
+        <div className="bg-amber-500/15 border-b border-amber-500/30 px-6 py-3">
+          <p className="text-center text-amber-800 dark:text-amber-200 text-sm">
+            这个世界还没有生机，请联系网站管理员设置 motherland
+          </p>
+        </div>
+      )}
 
       <main className={`w-full mx-auto flex gap-8 flex-1 ${isKnowledgeDetailPage || isSessionsFullPage ? 'px-0 py-0 max-w-none' : 'max-w-[1600px] px-6 py-8'}`}>
         {!isAgentEditPage && !isKnowledgeDetailPage && !isSessionsFullPage && (
