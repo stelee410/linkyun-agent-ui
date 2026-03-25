@@ -64,7 +64,13 @@ export interface AgentConfig {
   temperature?: number;
   examples?: ExampleMessage[];
   skills?: string[];
-  metadata?: { avatar?: string };
+  metadata?: {
+    avatar?: string;
+    /** 角色设定稿正文（Motherland + 提示词/头像生成） */
+    character_design_spec?: string;
+    /** 漫画设计稿静态文件名，对应 GET /api/v1/character-sheets/{filename} */
+    character_design_sheet?: string;
+  };
 }
 
 export interface RagConfig {
@@ -186,6 +192,37 @@ export async function optimizeAgentNarrative(
       baseline_prompt: body.baseline_prompt ?? "",
       instruction: body.instruction ?? "",
     }),
+  });
+}
+
+/** Motherland 多模态 LLM：根据当前提示词、头像与 Motherland 对话摘录生成角色设定稿 */
+export async function generateCharacterDesignSpec(apiKey: string, agentId: number, systemPrompt?: string) {
+  return request<{ spec_text: string }>(`/agents/${agentId}/character-design/generate-spec`, {
+    method: "POST",
+    apiKey,
+    body: JSON.stringify({ system_prompt: systemPrompt ?? "" }),
+  });
+}
+
+/** Motherland 委托 Nano Banana：根据设定稿生成漫画用设计稿图 */
+export async function generateCharacterDesignSheet(apiKey: string, agentId: number, specText: string) {
+  return request<{ image_url: string }>(`/agents/${agentId}/character-design/generate-sheet`, {
+    method: "POST",
+    apiKey,
+    body: JSON.stringify({ spec_text: specText }),
+  });
+}
+
+/** 将设定稿与设计稿图写入 Agent Profile（config.metadata + 静态文件） */
+export async function saveCharacterDesign(
+  apiKey: string,
+  agentId: number,
+  body: { spec_text: string; image_url: string }
+) {
+  return request<Agent>(`/agents/${agentId}/character-design/save`, {
+    method: "POST",
+    apiKey,
+    body: JSON.stringify(body),
   });
 }
 

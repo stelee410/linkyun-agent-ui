@@ -18,6 +18,8 @@ export const skillCategoryMap: Record<string, string> = {
   calculator: "calculator",
   motherland_optimize_prompt: "prompt",
   motherland_generate_avatar: "image",
+  motherland_generate_character_setting: "prompt",
+  motherland_generate_character_sheet: "image",
 };
 
 const iconClass = (size: "sm" | "lg") => (size === "sm" ? "w-5 h-5" : "w-10 h-10");

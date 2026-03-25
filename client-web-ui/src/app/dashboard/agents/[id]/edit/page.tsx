@@ -44,6 +44,9 @@ import {
   resetMotherlandChat,
   generateAgentAvatarPreview,
   optimizeAgentNarrative,
+  generateCharacterDesignSpec,
+  generateCharacterDesignSheet,
+  saveCharacterDesign,
   uploadAgentAvatar,
   type MomentItem,
   type LLMProvider,
@@ -79,6 +82,14 @@ function buildAvatarPreviewSrc(imageUrl: string): string {
   const path = imageUrl.startsWith("/") ? imageUrl : `/${imageUrl}`;
   const sep = path.includes("?") ? "&" : "?";
   return `${base}${path}${sep}preview=1`;
+}
+
+function buildSavedCharacterSheetSrc(a: Agent | null): string {
+  const fn = a?.config?.metadata?.character_design_sheet;
+  if (!fn || typeof fn !== "string") return "";
+  const base = getBaseUrl();
+  const qs = a?.updated_at ? `?t=${encodeURIComponent(a.updated_at)}` : "";
+  return `${base}/api/v1/character-sheets/${encodeURIComponent(fn)}${qs}`;
 }
 
 function SearchableEnumSelect({
@@ -814,7 +825,16 @@ export default function AgentEditPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showTestDialog, setShowTestDialog] = useState(false);
   const [showPostMomentDialog, setShowPostMomentDialog] = useState(false);
-  const [middleTab, setMiddleTab] = useState<"prompt" | "fewshot" | "moments" | "model" | "motherland">("prompt");
+  const [charDesignModalOpen, setCharDesignModalOpen] = useState(false);
+  const [charDesignDraftSpec, setCharDesignDraftSpec] = useState("");
+  const [charDesignPreviewUrl, setCharDesignPreviewUrl] = useState<string | null>(null);
+  const [charDesignErr, setCharDesignErr] = useState("");
+  const [charDesignGenSpec, setCharDesignGenSpec] = useState(false);
+  const [charDesignGenSheet, setCharDesignGenSheet] = useState(false);
+  const [charDesignSaving, setCharDesignSaving] = useState(false);
+  const [middleTab, setMiddleTab] = useState<
+    "prompt" | "fewshot" | "moments" | "character_design" | "model" | "motherland"
+  >("prompt");
   const [moments, setMoments] = useState<MomentItem[]>([]);
   const [loadingMoments, setLoadingMoments] = useState(false);
   const [llmProviders, setLlmProviders] = useState<LLMProvider[]>([]);
@@ -1062,6 +1082,80 @@ export default function AgentEditPage() {
     setMotherlandNarrativeResult("");
     setMotherlandNarrativeInstruction("");
     setMotherlandNarrativeError("");
+  };
+
+  const openCharacterDesignModal = () => {
+    setCharDesignErr("");
+    setCharDesignPreviewUrl(null);
+    const existing = agent?.config?.metadata?.character_design_spec;
+    setCharDesignDraftSpec(typeof existing === "string" ? existing : "");
+    setCharDesignModalOpen(true);
+  };
+
+  const handleCharacterDesignGenerateSpec = async () => {
+    if (!auth?.apiKey) return;
+    setCharDesignGenSpec(true);
+    setCharDesignErr("");
+    try {
+      const res = await generateCharacterDesignSpec(auth.apiKey, Number(agentId), prompt);
+      if (res.success && res.data?.spec_text) {
+        setCharDesignDraftSpec(res.data.spec_text);
+      } else {
+        setCharDesignErr(res.error?.message || "生成设定稿失败");
+      }
+    } catch {
+      setCharDesignErr("生成设定稿失败");
+    } finally {
+      setCharDesignGenSpec(false);
+    }
+  };
+
+  const handleCharacterDesignGenerateSheet = async () => {
+    const spec = charDesignDraftSpec.trim();
+    if (!spec || !auth?.apiKey) return;
+    setCharDesignGenSheet(true);
+    setCharDesignErr("");
+    try {
+      const res = await generateCharacterDesignSheet(auth.apiKey, Number(agentId), spec);
+      if (res.success && res.data?.image_url) {
+        setCharDesignPreviewUrl(res.data.image_url);
+      } else {
+        setCharDesignErr(res.error?.message || "生成设计稿图失败");
+      }
+    } catch {
+      setCharDesignErr("生成设计稿图失败");
+    } finally {
+      setCharDesignGenSheet(false);
+    }
+  };
+
+  const handleCharacterDesignSave = async () => {
+    if (!charDesignPreviewUrl || !auth?.apiKey) return;
+    const spec = charDesignDraftSpec.trim();
+    if (!spec) {
+      setCharDesignErr("请先填写或生成角色设定稿正文");
+      return;
+    }
+    setCharDesignSaving(true);
+    setCharDesignErr("");
+    try {
+      const res = await saveCharacterDesign(auth.apiKey, Number(agentId), {
+        spec_text: spec,
+        image_url: charDesignPreviewUrl,
+      });
+      if (res.success && res.data) {
+        setAgent(res.data);
+        setCharDesignModalOpen(false);
+        setCharDesignPreviewUrl(null);
+        setMiddleTab("character_design");
+      } else {
+        setCharDesignErr(res.error?.message || "保存失败");
+      }
+    } catch {
+      setCharDesignErr("保存失败");
+    } finally {
+      setCharDesignSaving(false);
+    }
   };
 
   const handleMotherlandAvatarGenerate = async () => {
@@ -1857,7 +1951,7 @@ export default function AgentEditPage() {
 
         {/* Middle: System Prompt / Few-shot / Moments / Model */}
         <div className="w-1/3 flex flex-col border-r border-border bg-slate-50/50 dark:bg-slate-900/30 shrink-0">
-          <div className="border-b border-border flex items-center">
+          <div className="border-b border-border flex flex-wrap items-center">
             <button
               onClick={() => setMiddleTab("prompt")}
               className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
@@ -1887,6 +1981,30 @@ export default function AgentEditPage() {
               }`}
             >
               朋友圈
+            </button>
+            <button
+              type="button"
+              onClick={() => setMiddleTab("character_design")}
+              className={`flex-1 min-w-[3rem] px-1.5 py-1.5 text-[10px] font-medium transition-colors flex flex-col items-center justify-center gap-0.5 leading-none ${
+                middleTab === "character_design"
+                  ? "text-primary border-b-2 border-primary"
+                  : "text-text-secondary hover:text-text-primary"
+              }`}
+            >
+              <svg
+                className="w-4 h-4 shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+              <span className="mt-0.5">角色</span>
             </button>
             <button
               onClick={() => setMiddleTab("model")}
@@ -2272,6 +2390,58 @@ export default function AgentEditPage() {
             </div>
           )}
 
+          {middleTab === "character_design" && (
+            <div className="flex-1 min-h-0 flex flex-col bg-surface overflow-hidden">
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                <p className="text-xs text-text-secondary">
+                  此处展示已保存到 Agent Profile 的角色设定稿与漫画用设计稿图。更新请切换到「Talk To Motherland」标签，点击「生成角色设定稿」。
+                </p>
+                {(() => {
+                  const spec = agent?.config?.metadata?.character_design_spec;
+                  const sheetSrc = buildSavedCharacterSheetSrc(agent);
+                  const hasSpec = typeof spec === "string" && spec.trim().length > 0;
+                  if (!hasSpec && !sheetSrc) {
+                    return (
+                      <div className="text-center text-text-secondary text-sm py-16 border border-dashed border-border rounded-xl">
+                        暂无已保存的设定稿或设计图
+                      </div>
+                    );
+                  }
+                  return (
+                    <>
+                      {sheetSrc ? (
+                        <div>
+                          <h4 className="text-xs font-semibold text-text-primary mb-2">漫画设计稿</h4>
+                          <div className="rounded-lg border border-border overflow-hidden bg-slate-100 dark:bg-slate-900 inline-block max-w-full">
+                            <img
+                              src={sheetSrc}
+                              alt="角色漫画设计稿"
+                              className="max-w-full h-auto max-h-[min(70vh,520px)] object-contain"
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        hasSpec && (
+                          <p className="text-xs text-amber-600 dark:text-amber-400">
+                            已保存设定正文，尚未保存设计稿图。
+                          </p>
+                        )
+                      )}
+                      {hasSpec && (
+                        <div>
+                          <h4 className="text-xs font-semibold text-text-primary mb-2">角色设定稿</h4>
+                          <pre className="whitespace-pre-wrap text-xs text-text-primary bg-slate-50 dark:bg-slate-900/80 border border-border rounded-lg p-3 max-h-64 overflow-y-auto font-sans">
+                            {spec}
+                          </pre>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
           {middleTab === "model" && (
             <div className="flex-1 overflow-y-auto p-4 space-y-5">
               {agent.agent_type !== "cloud" ? (
@@ -2566,6 +2736,17 @@ export default function AgentEditPage() {
                     >
                       优化你的叙事
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setError("");
+                        openCharacterDesignModal();
+                      }}
+                      disabled={loading || !agent}
+                      className="px-5 py-2.5 border-2 border-cyan-600 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-50 dark:hover:bg-cyan-950/30 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                    >
+                      生成角色设定稿
+                    </button>
                   </div>
                 </div>
               ) : (
@@ -2596,6 +2777,17 @@ export default function AgentEditPage() {
                             className="px-5 py-3 rounded-full border-2 border-primary text-primary hover:bg-primary/10 text-sm font-medium transition-colors"
                           >
                             优化你的叙事
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setError("");
+                              openCharacterDesignModal();
+                            }}
+                            disabled={loading || !agent}
+                            className="px-5 py-3 rounded-full border-2 border-cyan-600 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-50 dark:hover:bg-cyan-950/30 text-sm font-medium transition-colors disabled:opacity-50"
+                          >
+                            生成角色设定稿
                           </button>
                         </div>
                       </div>
@@ -2666,6 +2858,17 @@ export default function AgentEditPage() {
                           >
                             优化你的叙事
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setError("");
+                              openCharacterDesignModal();
+                            }}
+                            disabled={loading || !agent}
+                            className="px-4 py-2 rounded-lg border-2 border-cyan-600 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-50 dark:hover:bg-cyan-950/30 text-sm font-medium transition-colors disabled:opacity-50"
+                          >
+                            生成角色设定稿
+                          </button>
                         </>
                       ) : (
                         <>
@@ -2690,6 +2893,17 @@ export default function AgentEditPage() {
                             className="px-5 py-2 rounded-lg border border-primary text-primary hover:bg-primary/10 text-sm font-medium transition-colors"
                           >
                             优化你的叙事
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setError("");
+                              openCharacterDesignModal();
+                            }}
+                            disabled={loading || !agent}
+                            className="px-5 py-2 rounded-lg border-2 border-cyan-600 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-50 dark:hover:bg-cyan-950/30 text-sm font-medium transition-colors disabled:opacity-50"
+                          >
+                            生成角色设定稿
                           </button>
                           <button
                             type="button"
@@ -3101,6 +3315,16 @@ export default function AgentEditPage() {
                     title: "生成头像",
                     hint: "系统内置；需创作者已配置并启用 Nano Banana 等图像技能。",
                   },
+                  {
+                    skill_name: "motherland_generate_character_setting",
+                    title: "生成角色设定稿",
+                    hint: "Motherland 多模态 LLM；结合被辅导 Agent 的提示词与头像。",
+                  },
+                  {
+                    skill_name: "motherland_generate_character_sheet",
+                    title: "生成漫画设计稿图",
+                    hint: "委托 Motherland 侧 nanobanana_image；需先有设定正文。",
+                  },
                 ];
                 if (midMarket.length === 0 && !isMotherlandPageAgent) {
                   return (
@@ -3361,6 +3585,115 @@ export default function AgentEditPage() {
           </div>
         </div>
       </div>
+
+      {charDesignModalOpen && agent && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => {
+            if (!charDesignGenSpec && !charDesignGenSheet && !charDesignSaving) {
+              setCharDesignModalOpen(false);
+            }
+          }}
+        >
+          <div
+            className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-[min(520px,100%)] max-h-[90vh] overflow-y-auto p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-semibold text-text-primary mb-1">生成角色设定稿</h3>
+            <p className="text-xs text-text-secondary mb-4">
+              使用系统 <strong className="text-text-primary">Motherland</strong> 的对话模型（多模态时可读当前头像）生成设定正文；再委托 Motherland 账号下的{" "}
+              <strong className="text-text-primary">nanobanana_image</strong> 生成漫画用设计稿图。确认后写入 Agent Profile（无需再点「存为草稿」，但仍建议随后保存其他编辑）。
+            </p>
+            <label className="text-xs text-text-secondary block mb-1">角色设定稿（可编辑）</label>
+            <textarea
+              value={charDesignDraftSpec}
+              onChange={(e) => setCharDesignDraftSpec(e.target.value)}
+              rows={10}
+              disabled={charDesignGenSpec || charDesignGenSheet || charDesignSaving}
+              placeholder="点击下方「生成设定稿」…"
+              className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-900 border border-border rounded-lg text-text-primary resize-y min-h-[160px] focus:outline-none focus:ring-2 focus:ring-primary mb-3"
+            />
+            {charDesignErr && <p className="text-sm text-red-500 mb-3">{charDesignErr}</p>}
+            {charDesignPreviewUrl && (
+              <div className="mb-3">
+                <p className="text-xs text-text-secondary mb-1">设计稿预览</p>
+                <div className="rounded-lg border border-border overflow-hidden bg-slate-100 dark:bg-slate-900">
+                  <img
+                    src={buildAvatarPreviewSrc(charDesignPreviewUrl)}
+                    alt="设计稿预览"
+                    className="w-full max-h-64 object-contain"
+                  />
+                </div>
+              </div>
+            )}
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={handleCharacterDesignGenerateSpec}
+                disabled={charDesignGenSpec || charDesignGenSheet || charDesignSaving}
+                className="w-full px-4 py-2.5 bg-primary hover:opacity-90 disabled:opacity-50 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-2"
+              >
+                {charDesignGenSpec ? (
+                  <>
+                    <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    正在生成设定稿…
+                  </>
+                ) : (
+                  "生成设定稿（Motherland + 提示词/头像）"
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={handleCharacterDesignGenerateSheet}
+                disabled={
+                  !charDesignDraftSpec.trim() || charDesignGenSpec || charDesignGenSheet || charDesignSaving
+                }
+                className="w-full px-4 py-2.5 border border-primary text-primary hover:bg-primary/10 disabled:opacity-50 rounded-lg text-sm font-medium flex items-center justify-center gap-2"
+              >
+                {charDesignGenSheet ? (
+                  <>
+                    <span className="inline-block w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    正在生成漫画设计稿…
+                  </>
+                ) : charDesignPreviewUrl ? (
+                  "重新生成设计稿图"
+                ) : (
+                  "生成漫画设计稿图"
+                )}
+              </button>
+              {charDesignPreviewUrl && (
+                <button
+                  type="button"
+                  onClick={handleCharacterDesignSave}
+                  disabled={charDesignSaving || charDesignGenSpec || charDesignGenSheet}
+                  className="w-full px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-2"
+                >
+                  {charDesignSaving ? (
+                    <>
+                      <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      保存中…
+                    </>
+                  ) : (
+                    "确认保存到 Agent Profile"
+                  )}
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={charDesignGenSpec || charDesignGenSheet || charDesignSaving}
+                onClick={() => {
+                  setCharDesignModalOpen(false);
+                  setCharDesignPreviewUrl(null);
+                  setCharDesignErr("");
+                }}
+                className="w-full px-4 py-2.5 border border-border rounded-lg text-sm text-text-secondary hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showPostMomentDialog && agent && (
         <PostMomentDialog
