@@ -38,6 +38,10 @@ import {
   deleteMomentAutoSchedule,
   getMotherlandStatus,
   talkToMotherland,
+  autoTalkRound,
+  generateAutoTalkTopic,
+  getMotherlandChatHistory,
+  resetMotherlandChat,
   type MomentItem,
   type LLMProvider,
   type MomentAutoScheduleResult,
@@ -845,8 +849,12 @@ export default function AgentEditPage() {
   const [tokenCopied, setTokenCopied] = useState(false);
   const [motherlandStatus, setMotherlandStatus] = useState<{ configured: boolean; agent_id?: number } | null>(null);
   const [motherlandMessages, setMotherlandMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
-  const [motherlandInput, setMotherlandInput] = useState("");
-  const [motherlandSending, setMotherlandSending] = useState(false);
+  const [motherlandTopic, setMotherlandTopic] = useState("");
+  const [motherlandAutoRunning, setMotherlandAutoRunning] = useState(false);
+  const [motherlandTopicModalOpen, setMotherlandTopicModalOpen] = useState(false);
+  const [motherlandTopicGenerating, setMotherlandTopicGenerating] = useState(false);
+  const [motherlandHistoryLoaded, setMotherlandHistoryLoaded] = useState(false);
+  const motherlandAbortRef = useRef(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const motherlandEndRef = useRef<HTMLDivElement>(null);
 
@@ -893,12 +901,101 @@ export default function AgentEditPage() {
     motherlandEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [motherlandMessages]);
 
-  // Load motherland status when opening Talk To Motherland tab
+  // Load motherland status and chat history when opening Talk To Motherland tab
   useEffect(() => {
     if (middleTab === "motherland") {
       getMotherlandStatus().then(setMotherlandStatus).catch(() => setMotherlandStatus(null));
+      if (auth?.apiKey && agentId) {
+        setMotherlandHistoryLoaded(false);
+        getMotherlandChatHistory(auth.apiKey, Number(agentId)).then((res) => {
+          if (res.success && res.data?.messages && res.data.messages.length > 0) {
+            setMotherlandMessages(res.data.messages.map((m) => ({
+              role: m.role as "user" | "assistant",
+              content: m.content,
+            })));
+          } else {
+            setMotherlandMessages([]);
+          }
+          setMotherlandHistoryLoaded(true);
+        }).catch(() => setMotherlandHistoryLoaded(true));
+      }
     }
   }, [middleTab]);
+
+  // Auto-conversation loop with Motherland
+  // If continuing=true, don't clear messages and don't require a topic
+  const startAutoTalk = async (topicOverride?: string, continuing = false) => {
+    const topic = (topicOverride ?? motherlandTopic).trim();
+    if (!continuing && !topic) return;
+    if (!auth?.apiKey || motherlandAutoRunning) return;
+    setMotherlandTopicModalOpen(false);
+    if (topic) setMotherlandTopic(topic);
+    setMotherlandAutoRunning(true);
+    if (!continuing) setMotherlandMessages([]);
+    motherlandAbortRef.current = false;
+
+    const apiKey = auth.apiKey;
+    const aid = Number(agentId);
+    let isFirst = !continuing && !!topic;
+
+    while (!motherlandAbortRef.current) {
+      try {
+        const res = await autoTalkRound(apiKey, aid, isFirst ? topic : "");
+        if (motherlandAbortRef.current) break;
+        if (res.success && res.data) {
+          setMotherlandMessages((prev) => [
+            ...prev,
+            { role: "user", content: res.data!.agent_message },
+            { role: "assistant", content: res.data!.motherland_reply },
+          ]);
+          isFirst = false;
+        } else {
+          setMotherlandMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: `对话出错：${res.error?.message ?? "未知错误"}` },
+          ]);
+          break;
+        }
+      } catch (err) {
+        if (motherlandAbortRef.current) break;
+        setMotherlandMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `对话出错：${err instanceof Error ? err.message : "网络错误"}` },
+        ]);
+        break;
+      }
+    }
+
+    setMotherlandAutoRunning(false);
+  };
+
+  // Generate topic automatically
+  const handleGenerateTopic = async () => {
+    if (!auth?.apiKey || motherlandTopicGenerating) return;
+    setMotherlandTopicGenerating(true);
+    try {
+      const res = await generateAutoTalkTopic(auth.apiKey, Number(agentId));
+      if (res.success && res.data?.topic) {
+        setMotherlandTopic(res.data.topic);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setMotherlandTopicGenerating(false);
+    }
+  };
+
+  // Reset Motherland chat history
+  const handleResetMotherlandChat = async () => {
+    if (!auth?.apiKey) return;
+    try {
+      await resetMotherlandChat(auth.apiKey, Number(agentId));
+      setMotherlandMessages([]);
+      setMotherlandTopic("");
+    } catch {
+      // ignore
+    }
+  };
 
   // 技能选择/参数变更时立即保存到数据库，无需单独点保存
   const savePreSkillsToDb = async (next: { creator_skill_id: number }[]) => {
@@ -2317,90 +2414,143 @@ export default function AgentEditPage() {
               ) : (
                 <>
                   <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                    {motherlandMessages.length === 0 ? (
-                      <div className="text-center text-text-secondary text-sm py-12">
-                        以当前 Agent 的身份与 Motherland 对话，输入消息开始
+                    {motherlandMessages.length === 0 && !motherlandAutoRunning ? (
+                      <div className="flex-1 flex flex-col items-center justify-center text-text-secondary text-sm py-12 gap-4">
+                        <p>点击播放键，开始与 Motherland 的自动对话</p>
+                        <button
+                          type="button"
+                          onClick={() => { setMotherlandTopic(""); setMotherlandTopicModalOpen(true); }}
+                          className="w-16 h-16 flex items-center justify-center rounded-full bg-primary hover:opacity-90 text-white transition-colors shadow-lg"
+                        >
+                          <svg width="24" height="28" viewBox="0 0 16 18" fill="currentColor"><path d="M15 9L1 17.66V0.34L15 9Z" /></svg>
+                        </button>
                       </div>
                     ) : (
-                      motherlandMessages.map((msg, i) => (
-                        <div
-                          key={i}
-                          className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-                        >
-                          <div
-                            className={`max-w-[85%] px-4 py-2 rounded-xl ${
-                              msg.role === "user"
-                                ? "bg-primary text-white"
-                                : "bg-slate-200 dark:bg-slate-700 text-text-primary"
-                            }`}
-                          >
-                            <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                      <>
+                        {motherlandTopic && (
+                          <div className="text-center text-xs text-text-secondary py-1">
+                            主题：{motherlandTopic}
                           </div>
-                        </div>
-                      ))
+                        )}
+                        {motherlandMessages.map((msg, i) => (
+                          <div
+                            key={i}
+                            className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                          >
+                            <div
+                              className={`max-w-[85%] px-4 py-2 rounded-xl ${
+                                msg.role === "user"
+                                  ? "bg-primary text-white"
+                                  : "bg-slate-200 dark:bg-slate-700 text-text-primary"
+                              }`}
+                            >
+                              <p className="text-xs font-medium opacity-60 mb-1">
+                                {msg.role === "user" ? (agent?.name || "Agent") : "Motherland"}
+                              </p>
+                              <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </>
                     )}
-                    {motherlandSending && (
+                    {motherlandAutoRunning && (
                       <div className="flex justify-start">
                         <div className="px-4 py-2 rounded-xl bg-slate-200 dark:bg-slate-700 text-text-secondary text-sm flex items-center gap-2">
                           <span className="inline-block w-2 h-2 rounded-full bg-text-secondary animate-pulse" />
                           <span className="inline-block w-2 h-2 rounded-full bg-text-secondary animate-pulse [animation-delay:0.2s]" />
                           <span className="inline-block w-2 h-2 rounded-full bg-text-secondary animate-pulse [animation-delay:0.4s]" />
-                          <span className="ml-1">Motherland 正在回复...</span>
+                          <span className="ml-1">对话进行中...</span>
                         </div>
                       </div>
                     )}
                     <div ref={motherlandEndRef} />
                   </div>
-                  <form
-                    onSubmit={async (e) => {
-                      e.preventDefault();
-                      const text = motherlandInput.trim();
-                      if (!text || !auth?.apiKey || motherlandSending) return;
-                      setMotherlandMessages((prev) => [...prev, { role: "user", content: text }]);
-                      setMotherlandInput("");
-                      setMotherlandSending(true);
-                      try {
-                        const res = await talkToMotherland(auth.apiKey, Number(agentId), text);
-                        if (res.success && res.data?.content) {
-                          setMotherlandMessages((prev) => [
-                            ...prev,
-                            { role: "assistant", content: res.data!.content },
-                          ]);
-                        } else {
-                          setMotherlandMessages((prev) => [
-                            ...prev,
-                            { role: "assistant", content: `发送失败：${res.error?.message ?? "未知错误"}` },
-                          ]);
-                        }
-                      } catch (err) {
-                        setMotherlandMessages((prev) => [
-                          ...prev,
-                          { role: "assistant", content: `发送失败：${err instanceof Error ? err.message : "网络错误"}` },
-                        ]);
-                      } finally {
-                        setMotherlandSending(false);
-                      }
-                    }}
-                    className="p-4 border-t border-border"
-                  >
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={motherlandInput}
-                        onChange={(e) => setMotherlandInput(e.target.value)}
-                        placeholder="输入消息与 Motherland 对话..."
-                        disabled={motherlandSending}
-                        className="flex-1 px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-border rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
-                      />
-                      <button
-                        type="submit"
-                        disabled={motherlandSending || !motherlandInput.trim()}
-                        className="px-5 py-2.5 bg-primary hover:opacity-90 disabled:opacity-50 text-white rounded-lg font-medium"
-                      >
-                        {motherlandSending ? "发送中..." : "发送"}
-                      </button>
+                  {/* Bottom controls */}
+                  {(motherlandAutoRunning || motherlandMessages.length > 0) && (
+                    <div className="p-3 border-t border-border flex justify-center gap-3">
+                      {motherlandAutoRunning ? (
+                        <button
+                          type="button"
+                          onClick={() => { motherlandAbortRef.current = true; }}
+                          className="w-10 h-10 flex items-center justify-center rounded-full bg-red-500 hover:bg-red-600 text-white transition-colors"
+                          title="停止"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect width="14" height="14" rx="2" /></svg>
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => startAutoTalk("", true)}
+                            className="px-5 py-2 bg-primary hover:opacity-90 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                          >
+                            <svg width="12" height="14" viewBox="0 0 16 18" fill="currentColor"><path d="M15 9L1 17.66V0.34L15 9Z" /></svg>
+                            继续
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleResetMotherlandChat}
+                            className="px-5 py-2 border border-border text-text-secondary hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg text-sm font-medium transition-colors"
+                          >
+                            重置
+                          </button>
+                        </>
+                      )}
                     </div>
-                  </form>
+                  )}
+
+                  {/* Topic input modal */}
+                  {motherlandTopicModalOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setMotherlandTopicModalOpen(false)}>
+                      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-[420px] max-w-[90vw] p-6" onClick={(e) => e.stopPropagation()}>
+                        <h3 className="text-base font-semibold text-text-primary mb-4">设置对话主题</h3>
+                        <div className="space-y-3">
+                          <textarea
+                            value={motherlandTopic}
+                            onChange={(e) => setMotherlandTopic(e.target.value)}
+                            placeholder="输入你希望讨论的主题..."
+                            rows={3}
+                            className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-border rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary resize-none text-sm"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleGenerateTopic}
+                            disabled={motherlandTopicGenerating}
+                            className="w-full px-4 py-2.5 border border-border rounded-lg text-sm text-text-secondary hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                          >
+                            {motherlandTopicGenerating ? (
+                              <>
+                                <span className="inline-block w-3 h-3 border-2 border-text-secondary border-t-transparent rounded-full animate-spin" />
+                                生成中...
+                              </>
+                            ) : (
+                              <>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" /></svg>
+                                自动生成主题
+                              </>
+                            )}
+                          </button>
+                        </div>
+                        <div className="flex gap-3 mt-5">
+                          <button
+                            type="button"
+                            onClick={() => setMotherlandTopicModalOpen(false)}
+                            className="flex-1 px-4 py-2.5 border border-border rounded-lg text-sm text-text-secondary hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                          >
+                            取消
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => startAutoTalk()}
+                            disabled={!motherlandTopic.trim()}
+                            className="flex-1 px-4 py-2.5 bg-primary hover:opacity-90 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+                          >
+                            开始对话
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>

@@ -529,6 +529,42 @@ export async function talkToMotherland(apiKey: string, agentId: number, content:
   });
 }
 
+/** 自动对话一轮（创作者认证，Agent 自动与 Motherland 对话） */
+export async function autoTalkRound(apiKey: string, agentId: number, topic: string): Promise<ApiResponse<{ agent_message: string; motherland_reply: string }>> {
+  return request<{ agent_message: string; motherland_reply: string }>("/system/auto-talk-round", {
+    method: "POST",
+    apiKey,
+    body: JSON.stringify({ agent_id: agentId, topic }),
+  });
+}
+
+/** 自动生成对话主题（根据 Agent 设定和最近对话） */
+export async function generateAutoTalkTopic(apiKey: string, agentId: number): Promise<ApiResponse<{ topic: string }>> {
+  return request<{ topic: string }>("/system/generate-topic", {
+    method: "POST",
+    apiKey,
+    body: JSON.stringify({ agent_id: agentId }),
+  });
+}
+
+/** 获取与 Motherland 的聊天历史 */
+export async function getMotherlandChatHistory(apiKey: string, agentId: number): Promise<ApiResponse<{ messages: { role: string; content: string }[] }>> {
+  return request<{ messages: { role: string; content: string }[] }>("/system/motherland-chat-history", {
+    method: "POST",
+    apiKey,
+    body: JSON.stringify({ agent_id: agentId }),
+  });
+}
+
+/** 重置与 Motherland 的聊天记录 */
+export async function resetMotherlandChat(apiKey: string, agentId: number): Promise<ApiResponse<{ status: string }>> {
+  return request<{ status: string }>("/system/motherland-chat-reset", {
+    method: "POST",
+    apiKey,
+    body: JSON.stringify({ agent_id: agentId }),
+  });
+}
+
 // ============ 认证 ============
 
 export async function login(
