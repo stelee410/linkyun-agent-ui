@@ -21,9 +21,11 @@ import {
 } from "@/lib/api";
 import { MessageAttachments } from "@/components/MessageAttachments";
 import { Modal } from "@/components/ui/Modal";
+import { useWorkspace } from "@/contexts/WorkspaceContext";
 
 export default function SessionsPage() {
   const auth = getAuth();
+  const { workspaceCode } = useWorkspace();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [sharedUsers, setSharedUsers] = useState<SharedUser[]>([]);
   const [sharedSessions, setSharedSessions] = useState<Session[]>([]);
@@ -46,20 +48,24 @@ export default function SessionsPage() {
   const loadAgents = useCallback(async () => {
     if (!auth?.apiKey) return;
     try {
-      const res = await listAgents(auth.apiKey);
+      const ws =
+        workspaceCode && workspaceCode !== "default" ? workspaceCode : undefined;
+      const res = await listAgents(auth.apiKey, { workspaceCode: ws });
       if (res.success && res.data) {
         const list = (res.data as { agents?: Agent[] }).agents ?? [];
         setAgents(list);
-        if (list.length > 0 && !selectedAgentId) {
-          setSelectedAgentId(list[0].id);
-        }
+        setSelectedAgentId((prev) => {
+          if (list.length === 0) return null;
+          if (prev != null && list.some((a) => a.id === prev)) return prev;
+          return list[0].id;
+        });
       }
     } catch {
       setError("加载 Agents 失败");
     } finally {
       setLoading(false);
     }
-  }, [auth?.apiKey, selectedAgentId]);
+  }, [auth?.apiKey, workspaceCode]);
 
   useEffect(() => {
     if (!auth?.apiKey) return;

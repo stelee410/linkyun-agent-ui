@@ -27,6 +27,7 @@ import { AudioPlayer } from "@/components/AudioPlayer";
 import { ImageUploadButton } from "@/components/ImageUploadButton";
 import { DocumentUploadButton } from "@/components/DocumentUploadButton";
 import { MessageAttachments } from "@/components/MessageAttachments";
+import { useWorkspace } from "@/contexts/WorkspaceContext";
 
 function VoiceMessage({ content, audioUrl }: { content: string; audioUrl: string }) {
   const [showText, setShowText] = useState(false);
@@ -51,6 +52,7 @@ export default function ChatPage() {
   const searchParams = useSearchParams();
   const sessionIdParam = searchParams.get("session");
   const auth = getAuth();
+  const { workspaceCode } = useWorkspace();
   const [sessionId, setSessionId] = useState<number | null>(
     sessionIdParam ? parseInt(sessionIdParam, 10) : null
   );
@@ -71,7 +73,7 @@ export default function ChatPage() {
   useEffect(() => {
     if (!auth?.apiKey) return;
     loadAgents();
-  }, [auth?.apiKey]);
+  }, [auth?.apiKey, workspaceCode]);
 
   useEffect(() => {
     if (sessionId && auth?.apiKey) {
@@ -120,7 +122,9 @@ export default function ChatPage() {
 
   const loadAgents = async () => {
     if (!auth?.apiKey) return;
-    const res = await listAgents(auth.apiKey);
+    const ws =
+      workspaceCode && workspaceCode !== "default" ? workspaceCode : undefined;
+    const res = await listAgents(auth.apiKey, { workspaceCode: ws });
     if (res.success && res.data) {
       setAgents(res.data.agents || []);
     }
