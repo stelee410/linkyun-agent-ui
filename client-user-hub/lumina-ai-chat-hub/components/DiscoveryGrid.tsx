@@ -5,7 +5,7 @@ import { useWorkspace } from '../contexts/WorkspaceContext';
 import WorkspaceSelect from './WorkspaceSelect';
 import JoinWorkspaceModal from './JoinWorkspaceModal';
 import { leaveWorkspace } from '../services/api';
-import { listPublishedAgents, getAgentAvatarUrl } from '../services/api';
+import { listPublishedAgents, getAgentAvatarUrl, getAgentCharacterDesignSheetUrl } from '../services/api';
 import type { DiscoverAgent } from '../services/api';
 
 type SortMode = 'time_desc' | 'time_asc' | 'name_asc' | 'name_desc';
@@ -41,6 +41,7 @@ const DiscoveryGrid: React.FC<DiscoveryGridProps> = ({ apiKey, friendIds, onAddF
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortMode, setSortMode] = useState<SortMode>('time_desc');
+  const [designSheetPreview, setDesignSheetPreview] = useState<{ url: string; agentName: string } | null>(null);
 
   const filteredAndSortedAgents = useMemo(() => {
     let list = agents;
@@ -239,6 +240,7 @@ const DiscoveryGrid: React.FC<DiscoveryGridProps> = ({ apiKey, friendIds, onAddF
             const isFriend = friendIds.includes(aiId);
             const online = isOnline(agent);
             const isEdge = agent.agent_type === 'edge';
+            const designSheetUrl = getAgentCharacterDesignSheetUrl(agent);
             return (
               <div 
                 key={agent.id}
@@ -250,6 +252,22 @@ const DiscoveryGrid: React.FC<DiscoveryGridProps> = ({ apiKey, friendIds, onAddF
                     alt={agent.name} 
                     className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
                   />
+                  {designSheetUrl && (
+                    <div className="absolute top-2 left-2 z-[1]">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDesignSheetPreview({ url: designSheetUrl, agentName: agent.name || '' });
+                        }}
+                        title={t.discovery.viewCharacterDesignSheet}
+                        aria-label={t.discovery.viewCharacterDesignSheet}
+                        className="flex h-8 w-8 items-center justify-center rounded-full border border-white/25 bg-black/45 text-sky-300 backdrop-blur-sm transition-all hover:border-sky-400/60 hover:bg-black/55 hover:text-sky-200"
+                      >
+                        <span className="material-symbols-outlined text-[20px] leading-none">draw</span>
+                      </button>
+                    </div>
+                  )}
                   <div className="absolute top-2 right-2">
                     <span className={`px-1.5 py-0.5 rounded-full text-[8px] lg:text-[9px] font-bold uppercase tracking-widest ${online ? 'bg-green-500/20 text-green-500 border border-green-500/30' : 'bg-slate-500/20 text-slate-500 border border-slate-500/30'}`}>
                       {online ? t.discovery.online : t.discovery.offline}
@@ -316,6 +334,44 @@ const DiscoveryGrid: React.FC<DiscoveryGridProps> = ({ apiKey, friendIds, onAddF
           <p>{language === 'zh' ? '暂无已发布的 Agent，请在控制台创建并发布' : 'No published agents yet. Create and publish in the dashboard.'}</p>
         </div>
       )}
+
+      {designSheetPreview && (() => {
+        const modal = (
+          <div
+            className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/75 p-4 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="character-design-sheet-title"
+            onClick={() => setDesignSheetPreview(null)}
+          >
+            <div className="flex w-full max-w-4xl items-center justify-between gap-2 px-1">
+              <h2 id="character-design-sheet-title" className="truncate text-sm font-bold text-white/90 sm:text-base">
+                {designSheetPreview.agentName ? `${designSheetPreview.agentName} · ` : ''}
+                {t.discovery.characterDesignSheetTitle}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setDesignSheetPreview(null)}
+                className="shrink-0 rounded-full border border-white/20 bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
+                aria-label={t.discovery.closeCharacterDesignSheet}
+              >
+                <span className="material-symbols-outlined text-xl leading-none">close</span>
+              </button>
+            </div>
+            <div
+              className="relative max-h-[min(78vh,860px)] w-full max-w-4xl overflow-auto rounded-2xl border border-border-dark bg-surface-dark shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <img
+                src={designSheetPreview.url}
+                alt={t.discovery.characterDesignSheetTitle}
+                className="mx-auto block max-h-[min(78vh,860px)] w-full object-contain"
+              />
+            </div>
+          </div>
+        );
+        return typeof document !== 'undefined' ? createPortal(modal, document.body) : modal;
+      })()}
     </div>
   );
 };

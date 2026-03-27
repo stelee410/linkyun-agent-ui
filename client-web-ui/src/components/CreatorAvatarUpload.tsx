@@ -2,78 +2,9 @@
 
 import { useState, useRef, useCallback } from "react";
 import { uploadCreatorAvatar, deleteCreatorAvatar, getCreatorAvatar, type Creator } from "@/lib/api";
-import ReactCrop, {
-  centerCrop,
-  makeAspectCrop,
-  type Crop,
-  type PixelCrop,
-} from "react-image-crop";
+import { getCroppedBlob, centerAspectCropForDisplayedImage } from "@/lib/avatarCrop";
+import ReactCrop, { type Crop, type PixelCrop } from "react-image-crop";
 import "react-image-crop/dist/ReactCrop.css";
-
-const AVATAR_MAX_SIZE = 256;
-
-function getCroppedBlob(
-  image: HTMLImageElement,
-  crop: PixelCrop
-): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      reject(new Error("No canvas context"));
-      return;
-    }
-
-    const scaleX = image.naturalWidth / image.width;
-    const scaleY = image.naturalHeight / image.height;
-
-    let w = Math.floor(crop.width * scaleX);
-    let h = Math.floor(crop.height * scaleY);
-    if (w > AVATAR_MAX_SIZE || h > AVATAR_MAX_SIZE) {
-      const s = Math.min(AVATAR_MAX_SIZE / w, AVATAR_MAX_SIZE / h);
-      w = Math.floor(w * s);
-      h = Math.floor(h * s);
-    }
-
-    canvas.width = w;
-    canvas.height = h;
-
-    ctx.drawImage(
-      image,
-      Math.floor(crop.x * scaleX),
-      Math.floor(crop.y * scaleY),
-      Math.floor(crop.width * scaleX),
-      Math.floor(crop.height * scaleY),
-      0,
-      0,
-      w,
-      h
-    );
-
-    canvas.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error("Failed to create blob"))),
-      "image/jpeg",
-      0.85
-    );
-  });
-}
-
-function centerAspectCrop(
-  mediaWidth: number,
-  mediaHeight: number,
-  aspect: number
-): Crop {
-  return centerCrop(
-    makeAspectCrop(
-      { unit: "%", width: 90 },
-      aspect,
-      mediaWidth,
-      mediaHeight
-    ),
-    mediaWidth,
-    mediaHeight
-  );
-}
 
 interface CreatorAvatarUploadProps {
   /** 当前 Creator 数据 */
@@ -101,12 +32,19 @@ export function CreatorAvatarUpload({
   const [src, setSrc] = useState<string | null>(null);
   const [crop, setCrop] = useState<Crop>();
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
+  const [previewZoom, setPreviewZoom] = useState(1);
   const imgRef = useRef<HTMLImageElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const onImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
-    const { naturalWidth, naturalHeight } = e.currentTarget;
-    setCrop(centerAspectCrop(naturalWidth, naturalHeight, 1));
+    const img = e.currentTarget;
+    requestAnimationFrame(() => {
+      const c = centerAspectCropForDisplayedImage(img, 1);
+      if (c) {
+        setCrop(c);
+        setCompletedCrop(undefined);
+      }
+    });
   }, []);
 
   const handleFile = (file: File) => {
@@ -115,6 +53,7 @@ export function CreatorAvatarUpload({
     reader.onload = () => {
       setSrc(reader.result as string);
       setCompletedCrop(undefined);
+      setPreviewZoom(1);
     };
     reader.readAsDataURL(file);
   };
@@ -138,6 +77,7 @@ export function CreatorAvatarUpload({
       setSrc(null);
       setCrop(undefined);
       setCompletedCrop(undefined);
+      setPreviewZoom(1);
       if (res.success && res.data) {
         onSuccess(res.data);
       } else {
@@ -154,6 +94,7 @@ export function CreatorAvatarUpload({
     setSrc(null);
     setCrop(undefined);
     setCompletedCrop(undefined);
+    setPreviewZoom(1);
   };
 
   const handleRemove = async () => {
@@ -238,12 +179,31 @@ export function CreatorAvatarUpload({
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div className="bg-surface border border-border rounded-xl p-4 max-w-lg w-full max-h-[90vh] overflow-auto">
             <h3 className="text-text-primary font-medium mb-4">裁剪头像（正方形）</h3>
-            <div className="flex justify-center mb-4 max-h-[50vh] overflow-auto">
+            <p className="text-xs text-text-secondary mb-2">
+              拖选区移动位置，拖角点放大缩小选区；可用下方滑块放大预览便于精细裁剪。
+            </p>
+            <div className="flex items-center gap-3 text-xs text-text-secondary mb-3">
+              <span className="shrink-0">预览缩放</span>
+              <input
+                type="range"
+                min={1}
+                max={2.5}
+                step={0.1}
+                value={previewZoom}
+                onChange={(e) => setPreviewZoom(Number(e.target.value))}
+                className="flex-1 min-w-0 accent-primary"
+                aria-label="预览缩放"
+              />
+            </div>
+            <div className="flex justify-center mb-4 max-h-[75vh] overflow-auto">
               <ReactCrop
                 crop={crop}
                 onChange={(_, c) => setCrop(c)}
                 onComplete={(c) => setCompletedCrop(c)}
                 aspect={1}
+                keepSelection
+                minWidth={16}
+                minHeight={16}
                 className="max-w-full"
               >
                 <img
@@ -251,8 +211,8 @@ export function CreatorAvatarUpload({
                   src={src}
                   alt="裁剪"
                   onLoad={onImageLoad}
-                  className="max-w-full max-h-[40vh] block"
-                  style={{ maxHeight: "40vh" }}
+                  className="max-w-full block w-auto h-auto"
+                  style={{ maxHeight: `${Math.min(40 * previewZoom, 72)}vh`, maxWidth: "100%" }}
                 />
               </ReactCrop>
             </div>

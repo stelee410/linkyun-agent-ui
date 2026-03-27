@@ -452,8 +452,26 @@ export interface DiscoverAgent {
   created_at?: string;
   updated_at?: string;
   config?: {
-    metadata?: { avatar?: string };
+    metadata?: { avatar?: string; character_design_sheet?: string; character_design_spec?: string };
   };
+}
+
+const CHARACTER_SHEET_FILENAME_RE = /^sheet_\d+\.(jpe?g|png|webp)$/i;
+
+/** 若角色含已保存的漫画设计稿文件名则返回，否则 null（与后端 character-sheets 路由一致） */
+export function getAgentCharacterDesignSheetFilename(agent: DiscoverAgent): string | null {
+  const raw = agent.config?.metadata?.character_design_sheet;
+  if (typeof raw !== "string") return null;
+  const fn = raw.trim();
+  if (!fn || !CHARACTER_SHEET_FILENAME_RE.test(fn)) return null;
+  return fn;
+}
+
+/** 漫画设计稿公开图 URL（无设计稿时返回 null） */
+export function getAgentCharacterDesignSheetUrl(agent: DiscoverAgent): string | null {
+  const fn = getAgentCharacterDesignSheetFilename(agent);
+  if (!fn) return null;
+  return `${getBaseUrl()}/api/v1/character-sheets/${fn}?t=${getMinuteTimestamp()}`;
 }
 
 /** 获取 Agent 头像 URL */

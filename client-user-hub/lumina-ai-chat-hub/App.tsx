@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { View, Message, MomentPost, UserProfile, getViewFromPath, VIEW_PATHS } from './types';
 import { AI_HUMANS } from './constants';
 import Sidebar from './components/Sidebar/Sidebar';
@@ -31,6 +32,7 @@ import {
   deleteChatMemories,
   updateChatTitle,
   getAgentAvatarUrl,
+  getAgentCharacterDesignSheetUrl,
   getAgentAvatarUrlForFilename,
   listGroupChats,
   createGroupChat as createGroupChatApi,
@@ -237,6 +239,8 @@ const AppContent: React.FC = () => {
   const [selectedFriendIds, setSelectedFriendIds] = useState<string[]>([]);
   const [showTopicPrompt, setShowTopicPrompt] = useState(false);
   const [topicInput, setTopicInput] = useState('');
+  const [friendCharacterSheetModal, setFriendCharacterSheetModal] = useState<{ url: string; agentName: string } | null>(null);
+  const [removeFriendConfirm, setRemoveFriendConfirm] = useState<{ agentId: string; agentName: string } | null>(null);
   const [groupPolling, setGroupPolling] = useState<string | null>(null);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   
@@ -1235,8 +1239,9 @@ const AppContent: React.FC = () => {
                   const isSelected = selectedFriendIds.includes(agentIdStr);
                   const isEdge = agent.agent_type === 'edge';
                   const online = isEdge ? agent.edge_status === 'online' : true;
+                  const characterSheetUrl = getAgentCharacterDesignSheetUrl(agent);
                   return (
-                    <div key={agent.id} className={`bg-surface-dark p-4 lg:p-6 rounded-3xl border transition-all ${isSelected ? 'border-primary ring-2 ring-primary/20 bg-primary/5' : 'border-border-dark hover:border-primary/50'}`} onClick={() => isSelectingForTopic ? setSelectedFriendIds(prev => prev.includes(agentIdStr) ? prev.filter(id => id !== agentIdStr) : [...prev, agentIdStr]) : undefined}>
+                    <div key={agent.id} className={`overflow-visible bg-surface-dark p-4 lg:p-6 rounded-3xl border transition-all ${isSelected ? 'border-primary ring-2 ring-primary/20 bg-primary/5' : 'border-border-dark hover:border-primary/50'}`} onClick={() => isSelectingForTopic ? setSelectedFriendIds(prev => prev.includes(agentIdStr) ? prev.filter(id => id !== agentIdStr) : [...prev, agentIdStr]) : undefined}>
                       <div className="flex items-center gap-4">
                         <div className="relative">
                           <img src={getAgentAvatarUrl(agent)} className="size-14 lg:size-16 rounded-2xl object-cover" alt="" />
@@ -1248,26 +1253,105 @@ const AppContent: React.FC = () => {
                         </div>
                       </div>
                       {!isSelectingForTopic && (
-                        <div className="flex gap-2 mt-4">
+                        <div className="mt-4 flex flex-nowrap items-center gap-2 sm:gap-2.5">
                           <button
+                            type="button"
                             onClick={(e) => { e.stopPropagation(); createChat(agentIdStr); }}
-                            className="flex-1 py-2.5 bg-primary text-white font-bold rounded-2xl hover:opacity-90 transition-all flex items-center justify-center gap-2 text-sm"
+                            className="flex min-h-10 min-w-0 flex-1 items-center justify-center gap-1 rounded-xl bg-primary py-2 pl-2.5 pr-2.5 text-[11px] font-bold leading-tight text-white transition-all hover:opacity-90 sm:min-h-[2.75rem] sm:gap-1.5 sm:px-3 sm:text-xs"
                           >
-                            <span className="material-symbols-outlined text-lg">chat</span>
-                            {t.friends.chatWith}
+                            <span className="material-symbols-outlined shrink-0 text-[18px] leading-none sm:text-[20px]">chat</span>
+                            <span className="truncate">{t.friends.chatWith}</span>
                           </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); removeFriend(agentIdStr); }}
-                            className="py-2.5 px-4 border border-border-dark text-slate-400 font-bold rounded-2xl hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 transition-all flex items-center justify-center gap-1.5 text-sm"
-                          >
-                            <span className="material-symbols-outlined text-lg">person_remove</span>
-                            {t.discovery.removeFriend}
-                          </button>
+                          <div className="flex shrink-0 items-center gap-2 sm:gap-2.5">
+                            {characterSheetUrl && (
+                              <div className="group relative flex flex-col items-center">
+                                <button
+                                  type="button"
+                                  aria-label={t.friends.viewCharacter}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setFriendCharacterSheetModal({
+                                      url: characterSheetUrl,
+                                      agentName: agent.name || '',
+                                    });
+                                  }}
+                                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border-dark text-slate-200 transition-all hover:border-primary/40 hover:bg-primary/10 hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 sm:h-11 sm:w-11 sm:rounded-2xl"
+                                >
+                                  <span className="material-symbols-outlined text-[20px] leading-none sm:text-[22px]">draw</span>
+                                </button>
+                                <span className="pointer-events-none absolute top-full z-20 mt-1.5 whitespace-nowrap rounded-lg bg-black/90 px-2 py-1 text-[10px] font-bold text-white opacity-0 shadow-lg ring-1 ring-white/10 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+                                  {t.friends.viewCharacter}
+                                </span>
+                              </div>
+                            )}
+                            <div className="group relative flex flex-col items-center">
+                              <button
+                                type="button"
+                                aria-label={t.discovery.removeFriend}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setRemoveFriendConfirm({
+                                    agentId: agentIdStr,
+                                    agentName: agent.name || '',
+                                  });
+                                }}
+                                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border-dark text-slate-400 transition-all hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 sm:h-11 sm:w-11 sm:rounded-2xl"
+                              >
+                                <span className="material-symbols-outlined text-[20px] leading-none sm:text-[22px]">person_remove</span>
+                              </button>
+                              <span className="pointer-events-none absolute top-full z-20 mt-1.5 whitespace-nowrap rounded-lg bg-black/90 px-2 py-1 text-[10px] font-bold text-white opacity-0 shadow-lg ring-1 ring-white/10 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+                                {t.discovery.removeFriend}
+                              </span>
+                            </div>
+                          </div>
                         </div>
                       )}
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {removeFriendConfirm && (
+              <div
+                className="fixed inset-0 z-[55] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+                onClick={() => setRemoveFriendConfirm(null)}
+              >
+                <div
+                  className="w-full max-w-sm rounded-3xl border border-border-dark bg-surface-dark p-6 shadow-2xl"
+                  onClick={(e) => e.stopPropagation()}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="remove-friend-confirm-title"
+                >
+                  <h3 id="remove-friend-confirm-title" className="mb-2 text-lg font-bold text-white">
+                    {t.friends.removeFriendConfirmTitle}
+                  </h3>
+                  {removeFriendConfirm.agentName ? (
+                    <p className="mb-2 text-sm font-semibold text-white">{removeFriendConfirm.agentName}</p>
+                  ) : null}
+                  <p className="text-sm text-slate-400">{t.friends.removeFriendConfirmDesc}</p>
+                  <div className="mt-6 flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setRemoveFriendConfirm(null)}
+                      className="flex-1 rounded-xl border border-border-dark py-2.5 text-sm font-bold text-slate-300 transition-all hover:text-white"
+                    >
+                      {t.friends.cancel}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const id = removeFriendConfirm.agentId;
+                        setRemoveFriendConfirm(null);
+                        await removeFriend(id);
+                      }}
+                      className="flex-1 rounded-xl bg-red-500/20 py-2.5 text-sm font-bold text-red-400 ring-1 ring-red-500/40 transition-all hover:bg-red-500/30"
+                    >
+                      {t.discovery.removeFriend}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -1311,6 +1395,50 @@ const AppContent: React.FC = () => {
                 </div>
               </div>
             )}
+
+            {friendCharacterSheetModal &&
+              (typeof document !== 'undefined'
+                ? createPortal(
+                    <div
+                      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/75 p-4 backdrop-blur-sm"
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby="friend-character-sheet-title"
+                      onClick={() => setFriendCharacterSheetModal(null)}
+                    >
+                      <div className="flex w-full max-w-4xl items-center justify-between gap-2 px-1">
+                        <h2
+                          id="friend-character-sheet-title"
+                          className="truncate text-sm font-bold text-white/90 sm:text-base"
+                        >
+                          {friendCharacterSheetModal.agentName
+                            ? `${friendCharacterSheetModal.agentName} · `
+                            : ''}
+                          {t.discovery.characterDesignSheetTitle}
+                        </h2>
+                        <button
+                          type="button"
+                          onClick={() => setFriendCharacterSheetModal(null)}
+                          className="shrink-0 rounded-full border border-white/20 bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
+                          aria-label={t.discovery.closeCharacterDesignSheet}
+                        >
+                          <span className="material-symbols-outlined text-xl leading-none">close</span>
+                        </button>
+                      </div>
+                      <div
+                        className="relative max-h-[min(78vh,860px)] w-full max-w-4xl overflow-auto rounded-2xl border border-border-dark bg-surface-dark shadow-2xl"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <img
+                          src={friendCharacterSheetModal.url}
+                          alt={t.discovery.characterDesignSheetTitle}
+                          className="mx-auto block max-h-[min(78vh,860px)] w-full object-contain"
+                        />
+                      </div>
+                    </div>,
+                    document.body
+                  )
+                : null)}
           </div>
         )}
         
@@ -1376,6 +1504,10 @@ const AppContent: React.FC = () => {
               friendAgents={friendAgents}
               supportsImageUpload={activeChat.supports_image_upload}
               supportsDocumentUpload={activeChat.supports_document_upload}
+              agentCharacterDesignSheetUrl={(() => {
+                const a = findFriendAgent(String(activeChat.agent_id));
+                return a ? getAgentCharacterDesignSheetUrl(a) : null;
+              })()}
             />
           );
         })()}
@@ -1385,16 +1517,21 @@ const AppContent: React.FC = () => {
           const msgs = chatMessages[chatKey] || [];
           const participants = activeGroupChat.participants || [];
           const participantMap = Object.fromEntries(participants.map((p) => [String(p.agent_id), p]));
-          const participantDetails = participants.map((p) => ({
-            id: `agent-${p.agent_id}`,
-            name: p.agent_name,
-            avatar: getAgentAvatarUrlForFilename(p.agent_avatar, p.agent_name),
-          }));
+          const participantDetails = participants.map((p) => {
+            const agent = friendAgents.find((a) => a.id === p.agent_id);
+            const sheetUrl = agent ? getAgentCharacterDesignSheetUrl(agent) : null;
+            return {
+              id: `agent-${p.agent_id}`,
+              name: p.agent_name,
+              avatar: getAgentAvatarUrlForFilename(p.agent_avatar, p.agent_name),
+              ...(sheetUrl ? { characterDesignSheetUrl: sheetUrl } : {}),
+            };
+          });
           const adapter: {
             id: string;
             title: string;
             participants: string[];
-            participantDetails?: { id: string; name: string; avatar: string }[];
+            participantDetails?: { id: string; name: string; avatar: string; characterDesignSheetUrl?: string }[];
             messages: Message[];
             lastMessageTime: string;
             isGroup: boolean;

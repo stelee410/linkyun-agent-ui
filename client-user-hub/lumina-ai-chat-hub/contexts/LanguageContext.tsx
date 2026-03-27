@@ -68,7 +68,10 @@ const translations = {
       leaveWorkspaceModalTitle: "Leave Workspace",
       leaveWorkspaceConfirm: "Are you sure you want to leave this workspace? You can rejoin with an invite code later.",
       leaveSuccess: "Left workspace successfully",
-      leaveFailed: "Failed to leave workspace"
+      leaveFailed: "Failed to leave workspace",
+      viewCharacterDesignSheet: "Character",
+      characterDesignSheetTitle: "Character",
+      closeCharacterDesignSheet: "Close"
     },
     friends: {
       title: "My Friends",
@@ -80,6 +83,9 @@ const translations = {
       noFriends: "You haven't added any AI friends yet. Visit the Discovery tab to find your first digital assistant!",
       goToDiscovery: "Go to Discovery",
       chatWith: "Chat",
+      viewCharacter: "View character",
+      removeFriendConfirmTitle: "Remove this friend?",
+      removeFriendConfirmDesc: "You can add them again from Discovery anytime.",
       topicPromptTitle: "Enter a Topic",
       topicPromptDesc: "Give this conversation a topic so you can have different themed chats with the same AI.",
       topicPlaceholder: "e.g. Travel planning, Code review..."
@@ -118,6 +124,7 @@ const translations = {
       deleteMemoryConfirm: "Remove all memories between you and this agent. The agent will no longer remember previous context.",
       deleteChat: "Delete chat",
       deleteChatConfirm: "Delete this entire chat? Messages will be permanently removed and cannot be recovered.",
+      clickToViewCharacterSpec: "Click to view character",
       showVoiceText: "Show text ▼",
       hideVoiceText: "Hide text ▲",
       audioLoadFailed: "Audio failed to load",
@@ -246,7 +253,10 @@ const translations = {
       leaveWorkspaceModalTitle: "离开工作空间",
       leaveWorkspaceConfirm: "确定要离开此工作空间吗？之后可通过邀请码重新加入。",
       leaveSuccess: "已离开工作空间",
-      leaveFailed: "离开工作空间失败"
+      leaveFailed: "离开工作空间失败",
+      viewCharacterDesignSheet: "角色",
+      characterDesignSheetTitle: "角色",
+      closeCharacterDesignSheet: "关闭"
     },
     friends: {
       title: "我的好友",
@@ -258,6 +268,9 @@ const translations = {
       noFriends: "您还没有添加任何 AI 好友。访问“发现”标签页寻找您的第一个数字助手！",
       goToDiscovery: "去发现",
       chatWith: "与TA聊天",
+      viewCharacter: "查看角色",
+      removeFriendConfirmTitle: "确定取消该好友？",
+      removeFriendConfirmDesc: "之后可随时在发现页重新添加。",
       topicPromptTitle: "输入话题",
       topicPromptDesc: "为这个对话设置一个话题，这样你可以跟同一个 AI 进行不同主题的聊天。",
       topicPlaceholder: "例如：旅行规划、代码审查..."
@@ -296,6 +309,7 @@ const translations = {
       deleteMemoryConfirm: "清除你与此 Agent 之间的所有记忆。Agent 将不再记得之前的对话上下文。",
       deleteChat: "删除聊天",
       deleteChatConfirm: "确定删除本聊天？所有消息将被永久删除且无法恢复。",
+      clickToViewCharacterSpec: "点击查看角色",
       showVoiceText: "显示文字 ▼",
       hideVoiceText: "隐藏文字 ▲",
       audioLoadFailed: "音频加载失败",

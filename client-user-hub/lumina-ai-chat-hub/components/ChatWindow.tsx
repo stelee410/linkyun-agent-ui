@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -191,6 +191,8 @@ interface ChatWindowProps {
   supportsDocumentUpload?: boolean;
   /** Edge Agent 工具调用状态通知（如"正在调用 suno_generate..."），发送结束后自动清除 */
   edgeStatus?: string | null;
+  /** 单聊：漫画设计稿图 URL；有则 AI 头像可点击预览大图 */
+  agentCharacterDesignSheetUrl?: string | null;
 }
 
 const LIGHT_PRESETS = ['lumina-light', 'facebook', 'wechat'];
@@ -228,7 +230,7 @@ const MARKDOWN_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>['component
   },
 };
 
-const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, userAvatar, sharedWithCreator, humanized, onToggleShare, agentOnline = true, agentType = 'cloud', onSendMessage, onUpdateSettings, onBack, sending, sendingInThisChat = true, shareLoading, sendError, onClearSendError, onClearHistory, clearHistoryLoading, onDeleteMemory, deleteMemoryLoading, onDeleteChat, deleteChatLoading, friendAgents, supportsImageUpload, supportsDocumentUpload, edgeStatus }) => {
+const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, userAvatar, sharedWithCreator, humanized, onToggleShare, agentOnline = true, agentType = 'cloud', onSendMessage, onUpdateSettings, onBack, sending, sendingInThisChat = true, shareLoading, sendError, onClearSendError, onClearHistory, clearHistoryLoading, onDeleteMemory, deleteMemoryLoading, onDeleteChat, deleteChatLoading, friendAgents, supportsImageUpload, supportsDocumentUpload, edgeStatus, agentCharacterDesignSheetUrl }) => {
   const { t } = useLanguage();
   const { theme } = useTheme();
   // 有 edge 状态气泡（如「正在调用…」）时始终允许输入，不阻塞
@@ -246,6 +248,34 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
   const [typingPhrase, setTypingPhrase] = useState('');
   const [exportingPdf, setExportingPdf] = useState(false);
   const [isInputExpanded, setIsInputExpanded] = useState(false);
+  const [characterSheetModal, setCharacterSheetModal] = useState<{ url: string; agentName: string } | null>(null);
+
+  const participantDetails = (chat as { participantDetails?: { id: string; name: string; avatar: string; characterDesignSheetUrl?: string }[] }).participantDetails;
+
+  const characterSheetUrlBySenderId = useMemo(() => {
+    const m = new Map<string, string>();
+    if (participantDetails?.length) {
+      for (const p of participantDetails) {
+        const u = p.characterDesignSheetUrl?.trim();
+        if (u) m.set(p.id, u);
+      }
+    }
+    if (!chat.isGroup) {
+      const u = agentCharacterDesignSheetUrl?.trim();
+      if (u) {
+        for (const id of chat.participants) {
+          m.set(id, u);
+        }
+      }
+    }
+    return m;
+  }, [chat.isGroup, chat.participants, agentCharacterDesignSheetUrl, participantDetails]);
+
+  const openCharacterSheet = useCallback((senderId: string, agentName: string) => {
+    const url = characterSheetUrlBySenderId.get(senderId);
+    if (!url) return;
+    setCharacterSheetModal({ url, agentName: agentName || chat.title });
+  }, [characterSheetUrlBySenderId, chat.title]);
 
   useEffect(() => {
     if (sendingInThisChat) {
@@ -266,7 +296,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const participantDetails = (chat as { participantDetails?: { id: string; name: string; avatar: string }[] }).participantDetails;
   const currentDisplayParticipants = participantDetails?.length
     ? participantDetails.map((p) => ({ ...p, title: '', type: 'Technical' as PersonaType, bio: '', online: true, systemInstruction: '' } as AIDigitalHuman))
     : chat.participants.map((id) => {
@@ -509,15 +538,32 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
         </div>
         <div className="flex items-center gap-2 lg:gap-4 shrink-0">
           <div className="hidden sm:flex -space-x-2 mr-1">
-            {currentDisplayParticipants.slice(0, 3).map(p => (
-              <img 
-                key={p.id} 
-                src={p.avatar} 
-                title={p.name}
-                className="size-6 lg:size-7 rounded-full border-2 border-background-dark object-cover" 
-                alt={p.name} 
-              />
-            ))}
+            {currentDisplayParticipants.slice(0, 3).map((p) => {
+              const sheetUrl = characterSheetUrlBySenderId.get(p.id);
+              const img = (
+                <img
+                  src={p.avatar}
+                  title={sheetUrl ? undefined : p.name}
+                  className="size-6 lg:size-7 rounded-full border-2 border-background-dark object-cover"
+                  alt={p.name}
+                />
+              );
+              if (!sheetUrl) {
+                return <React.Fragment key={p.id}>{img}</React.Fragment>;
+              }
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  title={t.chat.clickToViewCharacterSpec}
+                  aria-label={t.chat.clickToViewCharacterSpec}
+                  onClick={() => openCharacterSheet(p.id, p.name)}
+                  className="relative rounded-full p-0 ring-0 transition-shadow hover:ring-2 hover:ring-primary/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                >
+                  {img}
+                </button>
+              );
+            })}
             {currentDisplayParticipants.length > 3 && (
               <div className="size-6 lg:size-7 rounded-full border-2 border-background-dark bg-surface-dark flex items-center justify-center text-[10px] font-bold">
                 +{currentDisplayParticipants.length - 3}
@@ -870,19 +916,30 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
               const senderAvatar = (msg as { senderAvatar?: string }).senderAvatar;
               const isRemovedAgent = msg.isAI && participantDetails?.length && !participantDetails.some((p) => p.id === msg.senderId);
               const showPlaceholder = isRemovedAgent && !senderAvatar;
-              return (
-                <div className={`size-8 lg:size-9 rounded-xl overflow-hidden shrink-0 mt-1 border border-border-dark shadow-md ${showPlaceholder ? 'bg-slate-600/60 flex items-center justify-center' : ''}`}>
-                  {showPlaceholder ? (
-                    <span className="material-symbols-outlined text-slate-400 text-lg lg:text-xl">smart_toy</span>
-                  ) : (
-                    <img
-                      src={msg.isAI ? (senderAvatar || agentAvatar || AI_HUMANS.find(a => a.id === msg.senderId)?.avatar || PLACEHOLDER.avatar) : (userAvatar || PLACEHOLDER.avatar)}
-                      alt={msg.senderName}
-                      className="w-full h-full object-cover"
-                    />
-                  )}
-                </div>
+              const characterSheetUrl = msg.isAI ? characterSheetUrlBySenderId.get(msg.senderId) : undefined;
+              const wrapCls = `size-8 lg:size-9 rounded-xl overflow-hidden shrink-0 mt-1 border border-border-dark shadow-md ${showPlaceholder ? 'bg-slate-600/60 flex items-center justify-center' : ''}`;
+              const imgSrc = msg.isAI
+                ? (senderAvatar || agentAvatar || AI_HUMANS.find((a) => a.id === msg.senderId)?.avatar || PLACEHOLDER.avatar)
+                : (userAvatar || PLACEHOLDER.avatar);
+              const inner = showPlaceholder ? (
+                <span className="material-symbols-outlined text-slate-400 text-lg lg:text-xl">smart_toy</span>
+              ) : (
+                <img src={imgSrc} alt={msg.senderName} className="h-full w-full object-cover" />
               );
+              if (msg.isAI && characterSheetUrl && !showPlaceholder) {
+                return (
+                  <button
+                    type="button"
+                    title={t.chat.clickToViewCharacterSpec}
+                    aria-label={t.chat.clickToViewCharacterSpec}
+                    onClick={() => openCharacterSheet(msg.senderId, msg.senderName)}
+                    className={`${wrapCls} cursor-pointer bg-transparent p-0 shadow-md hover:ring-2 hover:ring-primary/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50`}
+                  >
+                    {inner}
+                  </button>
+                );
+              }
+              return <div className={wrapCls}>{inner}</div>;
             })()}
             <div className={`flex flex-col gap-1 min-w-0 ${msg.isAI ? '' : 'items-end'}`}>
               {(idx === 0 || chat.messages[idx-1].senderId !== msg.senderId) && msg.senderId !== 'system' ? (
@@ -920,15 +977,34 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
           </div>
         ))}
         {/* 仅当前对话在等待 AI 回复时显示等待气泡；群聊处理中即使已有成员回复，也继续保留等待提示 */}
-        {sendingInThisChat && typingPhrase && (chat.isGroup || !(chat.messages.length > 0 && chat.messages[chat.messages.length - 1]?.isAI)) && (
+        {sendingInThisChat && typingPhrase && (chat.isGroup || !(chat.messages.length > 0 && chat.messages[chat.messages.length - 1]?.isAI)) && (() => {
+          const singlePid = chat.participants.length === 1 ? chat.participants[0] : null;
+          const typingSheetUrl = singlePid ? characterSheetUrlBySenderId.get(singlePid) : undefined;
+          const typingAvatarInner =
+            chat.participants.length > 1 ? (
+              <span className="material-symbols-outlined text-slate-400 text-lg lg:text-xl">smart_toy</span>
+            ) : (
+              <img src={agentAvatar || PLACEHOLDER.avatar} alt={chat.title} className="h-full w-full object-cover" />
+            );
+          const typingWrapCls =
+            'size-8 lg:size-9 rounded-xl overflow-hidden shrink-0 mt-1 border border-border-dark shadow-md bg-slate-600/60 flex items-center justify-center';
+          return (
           <div className="flex gap-3 max-w-[90%] lg:max-w-[85%]">
-            <div className="size-8 lg:size-9 rounded-xl overflow-hidden shrink-0 mt-1 border border-border-dark shadow-md bg-slate-600/60 flex items-center justify-center">
-              {chat.participants.length > 1 ? (
-                <span className="material-symbols-outlined text-slate-400 text-lg lg:text-xl">smart_toy</span>
-              ) : (
-                <img src={agentAvatar || PLACEHOLDER.avatar} alt={chat.title} className="w-full h-full object-cover" />
-              )}
+            {chat.participants.length > 1 || !typingSheetUrl ? (
+            <div className={typingWrapCls}>
+              {typingAvatarInner}
             </div>
+            ) : (
+            <button
+              type="button"
+              title={t.chat.clickToViewCharacterSpec}
+              aria-label={t.chat.clickToViewCharacterSpec}
+              onClick={() => singlePid && openCharacterSheet(singlePid, chat.title)}
+              className={`${typingWrapCls} cursor-pointer bg-slate-600/60 p-0 hover:ring-2 hover:ring-primary/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50`}
+            >
+              {typingAvatarInner}
+            </button>
+            )}
             <div className="flex flex-col gap-1 min-w-0">
               <span className="text-[9px] lg:text-[10px] font-bold px-1 text-primary">{chat.title}</span>
               <div className="p-3 lg:p-4 rounded-2xl rounded-tl-none shadow-sm text-sm lg:text-base message-bubble-ai animate-pulse">
@@ -936,7 +1012,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
               </div>
             </div>
           </div>
-        )}
+          );
+        })()}
         {/* Edge 工具调用进度通知气泡 */}
         {sendingInThisChat && edgeStatus && (
           <div className="flex justify-start pl-1">
@@ -1207,6 +1284,45 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chat, apiKey, agentAvatar, user
           </div>
         </div>
       </div>
+
+      {characterSheetModal &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[70] flex flex-col items-center justify-center gap-3 bg-black/75 p-4 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="chat-character-sheet-title"
+            onClick={() => setCharacterSheetModal(null)}
+          >
+            <div className="flex w-full max-w-4xl items-center justify-between gap-2 px-1">
+              <h2 id="chat-character-sheet-title" className="truncate text-sm font-bold text-white/90 sm:text-base">
+                {characterSheetModal.agentName
+                  ? `${characterSheetModal.agentName} · ${t.discovery.characterDesignSheetTitle}`
+                  : t.discovery.characterDesignSheetTitle}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setCharacterSheetModal(null)}
+                className="shrink-0 rounded-full border border-white/20 bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
+                aria-label={t.discovery.closeCharacterDesignSheet}
+              >
+                <span className="material-symbols-outlined text-xl leading-none">close</span>
+              </button>
+            </div>
+            <div
+              className="relative max-h-[min(78vh,860px)] w-full max-w-4xl overflow-auto rounded-2xl border border-border-dark bg-surface-dark shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <img
+                src={characterSheetModal.url}
+                alt={t.discovery.characterDesignSheetTitle}
+                className="mx-auto block max-h-[min(78vh,860px)] w-full object-contain"
+              />
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 };

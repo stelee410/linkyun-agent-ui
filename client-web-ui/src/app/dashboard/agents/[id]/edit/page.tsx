@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo, useCallback, type SyntheticEvent } from "react";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { getAuth } from "@/lib/auth";
@@ -53,6 +53,9 @@ import {
   type MomentAutoScheduleResult,
   type MomentScheduleItem,
 } from "@/lib/api";
+import { getCroppedBlob, centerAspectCropForDisplayedImage } from "@/lib/avatarCrop";
+import ReactCrop, { type Crop, type PixelCrop } from "react-image-crop";
+import "react-image-crop/dist/ReactCrop.css";
 import { AvatarUpload } from "@/components/AvatarUpload";
 import { AgentTestDialog } from "@/components/AgentTestDialog";
 import { PostMomentDialog } from "@/components/PostMomentDialog";
@@ -82,6 +85,33 @@ function buildAvatarPreviewSrc(imageUrl: string): string {
   const path = imageUrl.startsWith("/") ? imageUrl : `/${imageUrl}`;
   const sep = path.includes("?") ? "&" : "?";
   return `${base}${path}${sep}preview=1`;
+}
+
+/**
+ * 前端页面与 API 不同源时，img 不带 crossOrigin 会显示正常，但 canvas 裁剪会因「污染」失败。
+ * 与 API 不同源时设为 anonymous，且响应需带 Access-Control-Allow-Origin（服务端已有 CORS 中间件）。
+ */
+function avatarPreviewImgCrossOrigin(src: string): "anonymous" | undefined {
+  if (typeof window === "undefined" || !src) return undefined;
+  if (src.startsWith("data:") || src.startsWith("blob:")) return undefined;
+  try {
+    const abs = new URL(src, window.location.href);
+    return abs.origin !== window.location.origin ? "anonymous" : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 用于接受头像时拉取原图（与 buildAvatarPreviewSrc 一致逻辑，可去掉 preview=1 用原图） */
+function buildAvatarImageFetchUrl(imageUrl: string): string {
+  if (!imageUrl) return "";
+  if (imageUrl.startsWith("data:")) return imageUrl;
+  if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
+    return imageUrl.includes("?") ? `${imageUrl}&preview=1` : `${imageUrl}?preview=1`;
+  }
+  const base = getBaseUrl();
+  const path = imageUrl.startsWith("/") ? imageUrl : `/${imageUrl}`;
+  return `${base}${path}${path.includes("?") ? "&" : "?"}preview=1`;
 }
 
 function buildSavedCharacterSheetSrc(a: Agent | null): string {
@@ -899,6 +929,32 @@ export default function AgentEditPage() {
   const [motherlandAvatarAccepting, setMotherlandAvatarAccepting] = useState(false);
   const [motherlandAvatarPreviewPath, setMotherlandAvatarPreviewPath] = useState<string | null>(null);
   const [motherlandAvatarError, setMotherlandAvatarError] = useState("");
+  const [motherlandAvatarCrop, setMotherlandAvatarCrop] = useState<Crop>();
+  const [motherlandAvatarCompletedCrop, setMotherlandAvatarCompletedCrop] = useState<PixelCrop>();
+  const [motherlandAvatarPreviewZoom, setMotherlandAvatarPreviewZoom] = useState(1);
+  const motherlandAvatarImgRef = useRef<HTMLImageElement>(null);
+
+  const onMotherlandAvatarPreviewLoad = useCallback((e: SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    requestAnimationFrame(() => {
+      const c = centerAspectCropForDisplayedImage(img, 1);
+      if (c) {
+        setMotherlandAvatarCrop(c);
+        setMotherlandAvatarCompletedCrop(undefined);
+      }
+    });
+  }, []);
+
+  const motherlandAvatarPreviewDisplaySrc = useMemo(
+    () =>
+      motherlandAvatarPreviewPath ? buildAvatarPreviewSrc(motherlandAvatarPreviewPath) : "",
+    [motherlandAvatarPreviewPath]
+  );
+  const motherlandAvatarPreviewImgCrossOrigin = useMemo(
+    () => avatarPreviewImgCrossOrigin(motherlandAvatarPreviewDisplaySrc),
+    [motherlandAvatarPreviewDisplaySrc]
+  );
+
   const [motherlandNarrativeModalOpen, setMotherlandNarrativeModalOpen] = useState(false);
   const [motherlandNarrativeInstruction, setMotherlandNarrativeInstruction] = useState("");
   const [motherlandNarrativeResult, setMotherlandNarrativeResult] = useState("");
@@ -1043,6 +1099,9 @@ export default function AgentEditPage() {
   const openMotherlandAvatarModal = () => {
     setMotherlandAvatarError("");
     setMotherlandAvatarPreviewPath(null);
+    setMotherlandAvatarCrop(undefined);
+    setMotherlandAvatarCompletedCrop(undefined);
+    setMotherlandAvatarPreviewZoom(1);
     setMotherlandAvatarModalOpen(true);
   };
 
@@ -1167,6 +1226,7 @@ export default function AgentEditPage() {
       const res = await generateAgentAvatarPreview(auth.apiKey, Number(agentId), p);
       if (res.success && res.data?.image_url) {
         setMotherlandAvatarPreviewPath(res.data.image_url);
+        setMotherlandAvatarPreviewZoom(1);
       } else {
         setMotherlandAvatarError(res.error?.message || "生成失败");
       }
@@ -1179,26 +1239,33 @@ export default function AgentEditPage() {
 
   const handleMotherlandAvatarAccept = async () => {
     if (!motherlandAvatarPreviewPath || !auth?.apiKey) return;
+    if (!motherlandAvatarCompletedCrop || !motherlandAvatarImgRef.current) return;
     setMotherlandAvatarAccepting(true);
     setMotherlandAvatarError("");
     try {
-      const raw = motherlandAvatarPreviewPath;
-      let fetchUrl: string;
-      if (raw.startsWith("data:")) {
-        fetchUrl = raw;
-      } else if (raw.startsWith("http://") || raw.startsWith("https://")) {
-        fetchUrl = raw.includes("?") ? `${raw}&preview=1` : `${raw}?preview=1`;
-      } else {
-        const base = getBaseUrl();
-        const path = raw.startsWith("/") ? raw : `/${raw}`;
-        fetchUrl = `${base}${path}${path.includes("?") ? "&" : "?"}preview=1`;
+      const imgEl = motherlandAvatarImgRef.current;
+      try {
+        await imgEl.decode?.();
+      } catch {
+        // 部分浏览器 decode 不可用或失败，仍尝试裁剪
       }
-      const imgRes = await fetch(fetchUrl);
-      if (!imgRes.ok) {
-        setMotherlandAvatarError("下载预览图失败，请重试");
-        return;
+
+      let blob: Blob;
+      try {
+        blob = await getCroppedBlob(imgEl, motherlandAvatarCompletedCrop);
+      } catch (cropErr) {
+        console.warn("[avatar] canvas crop failed, fallback to full preview download:", cropErr);
+        const fetchUrl = buildAvatarImageFetchUrl(motherlandAvatarPreviewPath);
+        const imgRes = await fetch(fetchUrl);
+        if (!imgRes.ok) {
+          setMotherlandAvatarError(
+            cropErr instanceof Error ? cropErr.message : "接受头像时出错"
+          );
+          return;
+        }
+        blob = await imgRes.blob();
       }
-      const blob = await imgRes.blob();
+
       const file = new File([blob], "avatar.jpg", { type: blob.type || "image/jpeg" });
       const up = await uploadAgentAvatar(auth.apiKey, Number(agentId), file);
       if (up.success && up.data) {
@@ -1206,6 +1273,9 @@ export default function AgentEditPage() {
         setMotherlandAvatarModalOpen(false);
         setMotherlandAvatarPreviewPath(null);
         setMotherlandAvatarPrompt("");
+        setMotherlandAvatarCrop(undefined);
+        setMotherlandAvatarCompletedCrop(undefined);
+        setMotherlandAvatarPreviewZoom(1);
       } else {
         setMotherlandAvatarError(
           typeof up.error === "object" && up.error && "message" in up.error
@@ -1213,8 +1283,11 @@ export default function AgentEditPage() {
             : "上传头像失败"
         );
       }
-    } catch {
-      setMotherlandAvatarError("接受头像时出错");
+    } catch (e) {
+      console.error("[avatar] accept failed:", e);
+      setMotherlandAvatarError(
+        e instanceof Error ? e.message : "接受头像时出错"
+      );
     } finally {
       setMotherlandAvatarAccepting(false);
     }
@@ -2999,14 +3072,49 @@ export default function AgentEditPage() {
                           <p className="text-sm text-red-500 mb-3">{motherlandAvatarError}</p>
                         )}
                         {motherlandAvatarPreviewPath && (
-                          <div className="mb-4 flex flex-col items-center gap-2">
-                            <p className="text-xs text-text-secondary self-start">预览</p>
-                            <div className="w-40 h-40 rounded-full overflow-hidden border-2 border-border bg-slate-100 dark:bg-slate-900 shrink-0">
-                              <img
-                                src={buildAvatarPreviewSrc(motherlandAvatarPreviewPath)}
-                                alt="头像预览"
-                                className="w-full h-full object-cover"
+                          <div className="mb-4 flex flex-col gap-2">
+                            <p className="text-xs text-text-secondary">
+                              拖选区移动位置，拖角点放大缩小选区；可用滑块放大预览便于精细裁剪。确认后按选区保存为头像。
+                            </p>
+                            <div className="flex items-center gap-3 text-xs text-text-secondary">
+                              <span className="shrink-0">预览缩放</span>
+                              <input
+                                type="range"
+                                min={1}
+                                max={2.5}
+                                step={0.1}
+                                value={motherlandAvatarPreviewZoom}
+                                onChange={(e) => setMotherlandAvatarPreviewZoom(Number(e.target.value))}
+                                disabled={motherlandAvatarGenerating || motherlandAvatarAccepting}
+                                className="flex-1 min-w-0 accent-primary"
+                                aria-label="预览缩放"
                               />
+                            </div>
+                            <div className="flex justify-center w-full max-h-[75vh] overflow-auto rounded-lg border border-border bg-slate-100 dark:bg-slate-900 p-2">
+                              <ReactCrop
+                                crop={motherlandAvatarCrop}
+                                onChange={(_, c) => setMotherlandAvatarCrop(c)}
+                                onComplete={(c) => setMotherlandAvatarCompletedCrop(c)}
+                                aspect={1}
+                                keepSelection
+                                minWidth={16}
+                                minHeight={16}
+                                className="max-w-full"
+                              >
+                                <img
+                                  ref={motherlandAvatarImgRef}
+                                  key={motherlandAvatarPreviewPath}
+                                  src={motherlandAvatarPreviewDisplaySrc}
+                                  crossOrigin={motherlandAvatarPreviewImgCrossOrigin}
+                                  alt="头像预览"
+                                  onLoad={onMotherlandAvatarPreviewLoad}
+                                  className="max-w-full block w-auto h-auto"
+                                  style={{
+                                    maxHeight: `${Math.min(40 * motherlandAvatarPreviewZoom, 72)}vh`,
+                                    maxWidth: "100%",
+                                  }}
+                                />
+                              </ReactCrop>
                             </div>
                           </div>
                         )}
@@ -3034,7 +3142,11 @@ export default function AgentEditPage() {
                             <button
                               type="button"
                               onClick={handleMotherlandAvatarAccept}
-                              disabled={motherlandAvatarAccepting || motherlandAvatarGenerating}
+                              disabled={
+                                motherlandAvatarAccepting ||
+                                motherlandAvatarGenerating ||
+                                !motherlandAvatarCompletedCrop
+                              }
                               className="w-full px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
                             >
                               {motherlandAvatarAccepting ? (
@@ -3054,6 +3166,9 @@ export default function AgentEditPage() {
                               setMotherlandAvatarModalOpen(false);
                               setMotherlandAvatarPreviewPath(null);
                               setMotherlandAvatarError("");
+                              setMotherlandAvatarCrop(undefined);
+                              setMotherlandAvatarCompletedCrop(undefined);
+                              setMotherlandAvatarPreviewZoom(1);
                             }}
                             className="w-full px-4 py-2.5 border border-border rounded-lg text-sm text-text-secondary hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors"
                           >
