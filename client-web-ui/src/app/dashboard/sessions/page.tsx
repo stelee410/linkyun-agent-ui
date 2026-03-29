@@ -7,6 +7,8 @@ import {
   listAgents,
   listSharedUsers,
   listSharedSessions,
+  listSharedH2ASessionsForCreator,
+  sharedH2ARowToSession,
   getSessionMessages,
   verifySession,
   updateSessionPrompt,
@@ -14,10 +16,12 @@ import {
   setUserAgentPrompt,
   pushMessage,
   getAgentAvatar,
+  getAvatarUrlFromStoredFilename,
   type Agent,
   type Session,
   type Message,
   type SharedUser,
+  type SharedH2ASessionForCreator,
 } from "@/lib/api";
 import { MessageAttachments } from "@/components/MessageAttachments";
 import { Modal } from "@/components/ui/Modal";
@@ -44,6 +48,38 @@ export default function SessionsPage() {
   const [userPromptModalOpen, setUserPromptModalOpen] = useState(false);
   const [creatorComment, setCreatorComment] = useState("");
   const [sendingComment, setSendingComment] = useState(false);
+
+  /** 按 Agent 逐级筛选 | 一次拉取全部共享 H2A */
+  const [viewMode, setViewMode] = useState<"by-agent" | "all-h2a">("by-agent");
+  const [allSharedH2A, setAllSharedH2A] = useState<SharedH2ASessionForCreator[]>([]);
+  const [loadingAllShared, setLoadingAllShared] = useState(false);
+
+  const loadAllSharedH2A = useCallback(async () => {
+    if (!auth?.apiKey) return;
+    setLoadingAllShared(true);
+    setError("");
+    try {
+      const res = await listSharedH2ASessionsForCreator(auth.apiKey);
+      if (res.success && res.data) {
+        setAllSharedH2A(
+          (res.data as { sessions: SharedH2ASessionForCreator[] }).sessions ?? []
+        );
+      } else {
+        setAllSharedH2A([]);
+        setError(res.error?.message ?? "加载全部共享会话失败");
+      }
+    } catch {
+      setAllSharedH2A([]);
+      setError("加载全部共享会话失败");
+    } finally {
+      setLoadingAllShared(false);
+    }
+  }, [auth?.apiKey]);
+
+  useEffect(() => {
+    if (!auth?.apiKey || viewMode !== "all-h2a") return;
+    loadAllSharedH2A();
+  }, [auth?.apiKey, viewMode, loadAllSharedH2A]);
 
   const loadAgents = useCallback(async () => {
     if (!auth?.apiKey) return;
@@ -143,9 +179,17 @@ export default function SessionsPage() {
     try {
       const res = await verifySession(auth.apiKey, selectedSession.id, !selectedSession.verified);
       if (res.success && res.data) {
-        setSelectedSession((s) => (s ? { ...s, verified: (res.data as { verified: boolean }).verified } : null));
+        const verified = (res.data as { verified: boolean }).verified;
+        setSelectedSession((s) => (s ? { ...s, verified } : null));
         setSharedSessions((prev) =>
-          prev.map((s) => (s.id === selectedSession.id ? { ...s, verified: (res.data as { verified: boolean }).verified } : s))
+          prev.map((s) => (s.id === selectedSession.id ? { ...s, verified } : s))
+        );
+        setAllSharedH2A((prev) =>
+          prev.map((row) =>
+            row.session.id === selectedSession.id
+              ? { ...row, session: { ...row.session, verified } }
+              : row
+          )
         );
       } else {
         setError(res.error?.message ?? "操作失败");
@@ -253,7 +297,53 @@ export default function SessionsPage() {
           {error}
         </div>
       )}
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-col flex-1 min-h-0">
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-border bg-surface/40 shrink-0">
+          <span className="text-xs text-text-secondary mr-1">视图</span>
+          <button
+            type="button"
+            onClick={() => {
+              setViewMode("by-agent");
+              setSelectedSession(null);
+            }}
+            className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+              viewMode === "by-agent"
+                ? "bg-primary text-white"
+                : "bg-surface border border-border text-text-secondary hover:bg-slate-100 dark:hover:bg-slate-800"
+            }`}
+          >
+            按 Agent 查看
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setViewMode("all-h2a");
+              setSelectedSession(null);
+              setSelectedUserId(null);
+            }}
+            className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+              viewMode === "all-h2a"
+                ? "bg-primary text-white"
+                : "bg-surface border border-border text-text-secondary hover:bg-slate-100 dark:hover:bg-slate-800"
+            }`}
+          >
+            全部共享 H2A
+          </button>
+          {viewMode === "all-h2a" && (
+            <button
+              type="button"
+              onClick={() => loadAllSharedH2A()}
+              disabled={loadingAllShared}
+              className="px-3 py-1 rounded-lg text-xs font-medium border border-border text-text-primary hover:bg-surface disabled:opacity-50"
+            >
+              {loadingAllShared ? "刷新中…" : "刷新列表"}
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-1 min-h-0">
+        {viewMode === "by-agent" ? (
+          <>
         {/* Column 1: Agents */}
         <div className="w-48 flex-shrink-0 border-r border-border flex flex-col bg-surface/50">
           <div className="px-3 py-2 border-b border-border text-xs font-medium text-text-secondary uppercase tracking-wider">
@@ -363,6 +453,89 @@ export default function SessionsPage() {
             )}
           </div>
         </div>
+          </>
+        ) : (
+        <div className="w-[22rem] flex-shrink-0 border-r border-border flex flex-col bg-surface/50">
+          <div className="px-3 py-2 border-b border-border text-xs font-medium text-text-secondary uppercase tracking-wider">
+            全部共享 H2A 会话
+          </div>
+          <div className="flex-1 overflow-y-auto p-2">
+            {loadingAllShared && allSharedH2A.length === 0 ? (
+              <div className="text-text-secondary text-sm py-4">加载中…</div>
+            ) : allSharedH2A.length === 0 ? (
+              <div className="text-text-secondary text-sm py-4">暂无共享会话</div>
+            ) : (
+              allSharedH2A.map((row) => {
+                const agentAv = getAvatarUrlFromStoredFilename(row.agent.avatar);
+                const humanAv = getAvatarUrlFromStoredFilename(row.human.avatar);
+                const humanLabel =
+                  row.human.display_name?.trim() || row.human.username;
+                const title =
+                  row.session.title?.trim() ||
+                  `${row.agent.name} · #${row.session.id}`;
+                const active = selectedSession?.id === row.session.id;
+                return (
+                  <button
+                    key={row.session.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedAgentId(row.agent.id);
+                      setSelectedUserId(row.human.id);
+                      setSelectedSession(sharedH2ARowToSession(row));
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors mb-1 ${
+                      active
+                        ? "bg-primary/15 text-primary ring-1 ring-primary/30"
+                        : "text-text-primary hover:bg-surface border border-transparent"
+                    }`}
+                  >
+                    <div className="font-medium truncate">{title}</div>
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <div className="flex items-center gap-1 min-w-0 flex-1">
+                        <div className="w-6 h-6 rounded-full bg-surface border border-border overflow-hidden flex items-center justify-center shrink-0 text-[10px]">
+                          {agentAv ? (
+                            <img src={agentAv} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            row.agent.name.charAt(0).toUpperCase()
+                          )}
+                        </div>
+                        <span className="text-xs text-text-secondary truncate">
+                          {row.agent.name}
+                          {row.agent.agent_type === "edge" && (
+                            <span
+                              className={
+                                row.agent.online ? " text-emerald-500" : " text-text-secondary"
+                              }
+                            >
+                              {row.agent.online ? " · 在线" : " · 离线"}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="w-6 h-6 rounded-full bg-primary/15 border border-primary/25 overflow-hidden flex items-center justify-center shrink-0 text-[10px] text-primary">
+                        {humanAv ? (
+                          <img src={humanAv} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          humanLabel.charAt(0).toUpperCase()
+                        )}
+                      </div>
+                      <span className="text-xs text-text-secondary truncate">{humanLabel}</span>
+                      {row.session.verified && (
+                        <span className="text-emerald-500 text-xs shrink-0">✓</span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-text-secondary mt-1">
+                      {row.session.message_count} 条 · {row.session.status}
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+        )}
 
         {/* Column 4: Conversation */}
         <div className="flex-1 flex flex-col min-w-0 bg-background">
@@ -514,6 +687,7 @@ export default function SessionsPage() {
               </button>
             </div>
           </div>
+        </div>
         </div>
       </div>
 

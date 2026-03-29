@@ -442,6 +442,75 @@ export interface SharedUser {
   last_message_at?: string;
 }
 
+/** GET /sessions/shared — 创作者全部共享 H2A（1v1）会话 */
+export interface SharedH2ASessionInfo {
+  id: number;
+  uuid: string;
+  title?: string | null;
+  status: string;
+  source: string;
+  message_count: number;
+  total_tokens: number;
+  verified: boolean;
+  created_at: string;
+  updated_at: string;
+  last_message_at?: string | null;
+}
+
+export interface SharedH2AAgentInfo {
+  id: number;
+  uuid: string;
+  name: string;
+  code?: string;
+  avatar: string;
+  agent_type: string;
+  online: boolean;
+}
+
+export interface SharedH2AHumanInfo {
+  id: number;
+  uuid: string;
+  username: string;
+  display_name?: string;
+  avatar: string;
+}
+
+export interface SharedH2ASessionForCreator {
+  session: SharedH2ASessionInfo;
+  agent: SharedH2AAgentInfo;
+  human: SharedH2AHumanInfo;
+}
+
+/** 将共享列表行转为 Session，供消息/Prompt 等现有接口使用 */
+export function sharedH2ARowToSession(
+  row: SharedH2ASessionForCreator,
+  creatorId = 0
+): Session {
+  return {
+    id: row.session.id,
+    uuid: row.session.uuid,
+    agent_id: row.agent.id,
+    user_id: row.human.id,
+    creator_id: creatorId,
+    status: row.session.status,
+    message_count: row.session.message_count,
+    total_tokens: row.session.total_tokens,
+    created_at: row.session.created_at,
+    verified: row.session.verified,
+    title: row.session.title ?? undefined,
+    is_group: false,
+    session_type: "H2A",
+  };
+}
+
+/** 用户/Agent 存库的头像文件名 → 可展示的 URL */
+export function getAvatarUrlFromStoredFilename(filename: string | null | undefined): string | null {
+  if (!filename || typeof filename !== "string" || !filename.trim()) return null;
+  const av = filename.trim();
+  if (av.startsWith("data:")) return av;
+  return `${getBaseUrl()}/api/v1/avatars/${encodeURIComponent(av)}?t=${getMinuteTimestamp()}`;
+}
+
 /** 消息中的附件（与 Attachment 格式一致，含 token 时用于预览/下载） */
 export interface MessageAttachment {
   type: string;
@@ -1054,6 +1123,14 @@ export async function listSharedUsers(apiKey: string, agentId: number) {
 
 export async function listSharedSessions(apiKey: string, agentId: number, userId: number) {
   return request<{ sessions: Session[] }>(`/agents/${agentId}/users/${userId}/shared-sessions`, {
+    method: "GET",
+    apiKey,
+  });
+}
+
+/** 创作者：全部已共享的 H2A（1v1）会话，含 session / agent / human */
+export async function listSharedH2ASessionsForCreator(apiKey: string) {
+  return request<{ sessions: SharedH2ASessionForCreator[] }>("/sessions/shared", {
     method: "GET",
     apiKey,
   });
