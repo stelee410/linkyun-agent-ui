@@ -52,6 +52,11 @@ import {
   type LLMProvider,
   type MomentAutoScheduleResult,
   type MomentScheduleItem,
+  createShareLink,
+  getShareLink,
+  toggleShareLink,
+  deleteShareLink,
+  type ShareLinkResponse,
 } from "@/lib/api";
 import { getCroppedBlob, centerAspectCropForDisplayedImage } from "@/lib/avatarCrop";
 import ReactCrop, { type Crop, type PixelCrop } from "react-image-crop";
@@ -60,6 +65,7 @@ import { AvatarUpload } from "@/components/AvatarUpload";
 import { AgentTestDialog } from "@/components/AgentTestDialog";
 import { PostMomentDialog } from "@/components/PostMomentDialog";
 import { BackIcon, SaveIcon, PublishIcon, ArchiveIcon, TestPlayIcon } from "@/components/icons";
+import { QRCodeCanvas } from "qrcode.react";
 
 interface DisplayMessage {
   id: number;
@@ -863,8 +869,12 @@ export default function AgentEditPage() {
   const [charDesignGenSheet, setCharDesignGenSheet] = useState(false);
   const [charDesignSaving, setCharDesignSaving] = useState(false);
   const [middleTab, setMiddleTab] = useState<
-    "prompt" | "fewshot" | "moments" | "character_design" | "model" | "motherland"
+    "prompt" | "fewshot" | "moments" | "character_design" | "model" | "motherland" | "share"
   >("prompt");
+  const [shareLink, setShareLink] = useState<ShareLinkResponse | null>(null);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [shareBaseUrl, setShareBaseUrl] = useState("linkyun.co");
   const [moments, setMoments] = useState<MomentItem[]>([]);
   const [loadingMoments, setLoadingMoments] = useState(false);
   const [llmProviders, setLlmProviders] = useState<LLMProvider[]>([]);
@@ -2099,6 +2109,24 @@ export default function AgentEditPage() {
             >
               Talk To Motherland
             </button>
+            <button
+              onClick={() => {
+                setMiddleTab("share");
+                if (!shareLink && auth) {
+                  setShareLoading(true);
+                  getShareLink(auth.apiKey, agentId).then(res => {
+                    if (res.success && res.data) setShareLink(res.data);
+                  }).finally(() => setShareLoading(false));
+                }
+              }}
+              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
+                middleTab === "share"
+                  ? "text-primary border-b-2 border-primary"
+                  : "text-text-secondary hover:text-text-primary"
+              }`}
+            >
+              分享
+            </button>
             {middleTab === "fewshot" && testMessages.length > 0 && (
               <button
                 onClick={handleClearTest}
@@ -3263,6 +3291,140 @@ export default function AgentEditPage() {
                     </div>
                   )}
                 </>
+              )}
+            </div>
+          )}
+
+          {middleTab === "share" && (
+            <div className="flex-1 min-h-0 overflow-y-auto p-5 bg-surface">
+              <h3 className="text-base font-semibold text-text-primary mb-1">公开分享</h3>
+              <p className="text-xs text-text-secondary mb-5">
+                生成分享链接，让未注册用户也能直接与此 Agent 对话。
+              </p>
+
+              {shareLoading ? (
+                <div className="text-sm text-text-secondary">加载中...</div>
+              ) : shareLink ? (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${
+                      shareLink.enabled
+                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                        : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${shareLink.enabled ? "bg-emerald-500" : "bg-red-500"}`} />
+                      {shareLink.enabled ? "已启用" : "已禁用"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!auth) return;
+                        const res = await toggleShareLink(auth.apiKey, agentId, !shareLink.enabled);
+                        if (res.success && res.data) setShareLink(res.data);
+                      }}
+                      className="text-xs text-primary hover:opacity-80"
+                    >
+                      {shareLink.enabled ? "禁用链接" : "启用链接"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!auth || !confirm("确定要删除分享链接吗？已有的访客将无法继续访问。")) return;
+                        const res = await deleteShareLink(auth.apiKey, agentId);
+                        if (res.success) setShareLink(null);
+                      }}
+                      className="text-xs text-red-500 hover:opacity-80"
+                    >
+                      删除链接
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-text-secondary block mb-1.5">Base URL</label>
+                    <input
+                      type="text"
+                      value={shareBaseUrl}
+                      onChange={(e) => setShareBaseUrl(e.target.value.trim())}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
+                      placeholder="linkyun.co"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-text-secondary block mb-1.5">分享链接</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={`https://${shareBaseUrl}/sharedAgent/${shareLink.share_token}`}
+                        className="flex-1 px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-border rounded-lg text-sm text-text-primary font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(`https://${shareBaseUrl}/sharedAgent/${shareLink.share_token}`);
+                          setShareCopied(true);
+                          setTimeout(() => setShareCopied(false), 2000);
+                        }}
+                        className="px-3 py-2 bg-primary text-white rounded-lg text-sm hover:opacity-90 whitespace-nowrap"
+                      >
+                        {shareCopied ? "已复制" : "复制"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-text-secondary block mb-2">二维码</label>
+                    <div className="inline-flex flex-col items-center gap-2 p-4 bg-white rounded-xl border border-border">
+                      <QRCodeCanvas
+                        id="share-qrcode"
+                        value={`https://${shareBaseUrl}/sharedAgent/${shareLink.share_token}`}
+                        size={180}
+                        level="H"
+                        includeMargin
+                        imageSettings={getAgentAvatar(agent) ? {
+                          src: getAgentAvatar(agent)!,
+                          height: 36,
+                          width: 36,
+                          excavate: true,
+                        } : undefined}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const canvas = document.getElementById("share-qrcode") as HTMLCanvasElement;
+                          if (!canvas) return;
+                          const url = canvas.toDataURL("image/png");
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = `${agent?.name || "agent"}-share-qrcode.png`;
+                          a.click();
+                        }}
+                        className="text-xs text-primary hover:opacity-80 transition-opacity"
+                      >
+                        下载二维码
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-text-secondary mt-2">
+                    <p>创建时间：{new Date(shareLink.created_at).toLocaleString()}</p>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!auth) return;
+                    setShareLoading(true);
+                    const res = await createShareLink(auth.apiKey, agentId);
+                    if (res.success && res.data) setShareLink(res.data);
+                    setShareLoading(false);
+                  }}
+                  className="px-5 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:opacity-90 transition-colors"
+                >
+                  生成分享链接
+                </button>
               )}
             </div>
           )}

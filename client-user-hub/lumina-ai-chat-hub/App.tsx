@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { View, Message, MomentPost, UserProfile, getViewFromPath, VIEW_PATHS } from './types';
+import { View, Message, MomentPost, UserProfile, getViewFromPath, getShareTokenFromPath, VIEW_PATHS } from './types';
 import { AI_HUMANS } from './constants';
 import Sidebar from './components/Sidebar/Sidebar';
 import type { SidebarChatEntry } from './components/Sidebar/ChatListItem';
@@ -56,6 +56,7 @@ import type { APIMoment } from './services/api';
 import type { ChatMessage as APIChatMessage } from './services/api';
 import { PLACEHOLDER } from './lib/placeholder';
 import UpdateRefreshBanner from './components/UpdateRefreshBanner';
+import SharedAgentPage from './components/SharedAgentPage';
 
 function creatorToUserProfile(creator: Creator | null | undefined): UserProfile | null {
   if (!creator || creator.id == null) return null;
@@ -167,6 +168,12 @@ const AppContent: React.FC = () => {
   };
 
   useEffect(() => {
+    if (getShareTokenFromPath(window.location.pathname)) {
+      setView('shared_agent');
+      setAuthChecked(true);
+      return;
+    }
+
     const auth = getAuth();
     if (auth) {
       const applyCreator = (creator: Creator) => {
@@ -175,7 +182,7 @@ const AppContent: React.FC = () => {
           setCurrentUser(profile);
           const v = getViewFromPath(window.location.pathname);
           setView(v);
-          const path = VIEW_PATHS[v];
+          const path = VIEW_PATHS[v as keyof typeof VIEW_PATHS];
           if (path) window.history.replaceState(null, '', path);
           loadFriends(auth!.apiKey);
           loadUserChats(auth!.apiKey);
@@ -1124,6 +1131,11 @@ const AppContent: React.FC = () => {
     setMoments((prev) => prev.map(appendComment));
     if (momentsFilter) setAgentMoments((prev) => prev.map(appendComment));
   };
+
+  const shareToken = getShareTokenFromPath(window.location.pathname);
+  if (shareToken) {
+    return <SharedAgentPage shareToken={shareToken} />;
+  }
 
   if (view === 'auth') return <AuthScreen onLogin={handleLogin} />;
   if (!currentUser) return null;

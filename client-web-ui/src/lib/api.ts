@@ -1790,3 +1790,62 @@ export function subscribeUserEvents(
     abortController.abort();
   };
 }
+
+// ============ Share Link ============
+
+export interface ShareLinkResponse {
+  uuid: string;
+  share_token: string;
+  agent_id: number;
+  agent_name?: string;
+  enabled: boolean;
+  expires_at?: string;
+  share_url?: string;
+  created_at: string;
+}
+
+export async function createShareLink(
+  apiKey: string,
+  agentId: number
+): Promise<ApiResponse<ShareLinkResponse>> {
+  const res = await request<ShareLinkResponse>(`/agents/${agentId}/share-link`, {
+    method: "POST",
+    apiKey,
+  });
+  return res;
+}
+
+export async function getShareLink(
+  apiKey: string,
+  agentId: number
+): Promise<ApiResponse<ShareLinkResponse>> {
+  const res = await request<ShareLinkResponse>(`/agents/${agentId}/share-link`, {
+    method: "GET",
+    apiKey,
+  });
+  return res;
+}
+
+export async function toggleShareLink(
+  apiKey: string,
+  agentId: number,
+  enabled: boolean
+): Promise<ApiResponse<ShareLinkResponse>> {
+  const res = await request<ShareLinkResponse>(`/agents/${agentId}/share-link`, {
+    method: "PATCH",
+    apiKey,
+    body: JSON.stringify({ enabled }),
+  });
+  return res;
+}
+
+export async function deleteShareLink(
+  apiKey: string,
+  agentId: number
+): Promise<ApiResponse<{ deleted: boolean }>> {
+  const res = await request<{ deleted: boolean }>(`/agents/${agentId}/share-link`, {
+    method: "DELETE",
+    apiKey,
+  });
+  return res;
+}

@@ -1330,3 +1330,192 @@ export async function markSessionRead(
   }
   return res as ApiResponse<{ message: string }>;
 }
+
+// ============ Public Share (no auth required) ============
+
+export interface PublicShareAgent {
+  id: number;
+  name: string;
+  avatar: string;
+  character_design_sheet?: string;
+}
+
+export interface PublicShareSession {
+  id: number;
+  uuid: string;
+  status: string;
+  message_count: number;
+  last_message_at?: string;
+  created_at: string;
+}
+
+export interface PublicShareEntryResponse {
+  user_code?: string;
+  is_new_user: boolean;
+  agent: PublicShareAgent;
+  session?: PublicShareSession;
+  sessions?: PublicShareSession[];
+}
+
+export async function enterShare(
+  shareToken: string,
+  userCode?: string
+): Promise<ApiResponse<PublicShareEntryResponse>> {
+  const url = `${getBaseUrl()}/api/v1/public/share/${shareToken}`;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (userCode) {
+    headers["X-Share-User-Code"] = userCode;
+  }
+  try {
+    const res = await fetch(url, { method: "GET", headers });
+    const json = await res.json();
+    if (json.success && json.data) {
+      return { success: true, data: json.data };
+    }
+    return { success: false, error: json.error || { message: "Failed to enter share" } };
+  } catch {
+    return { success: false, error: { message: "Network error" } };
+  }
+}
+
+async function guestRequest<T>(
+  shareToken: string,
+  userCode: string,
+  path: string,
+  options: RequestInit = {}
+): Promise<ApiResponse<T>> {
+  const url = `${getBaseUrl()}/api/v1/public/share/${shareToken}${path}`;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-Share-User-Code": userCode,
+    ...(options.headers as Record<string, string> || {}),
+  };
+  try {
+    const res = await fetch(url, { ...options, headers });
+    const json = await res.json();
+    if (json.success) {
+      return { success: true, data: json.data };
+    }
+    return { success: false, error: json.error || { message: "Request failed" } };
+  } catch {
+    return { success: false, error: { message: "Network error" } };
+  }
+}
+
+export async function createGuestSession(
+  shareToken: string,
+  userCode: string
+): Promise<ApiResponse<PublicShareSession>> {
+  return guestRequest<PublicShareSession>(shareToken, userCode, "/sessions", { method: "POST" });
+}
+
+export async function listGuestSessions(
+  shareToken: string,
+  userCode: string
+): Promise<ApiResponse<PublicShareSession[]>> {
+  return guestRequest<PublicShareSession[]>(shareToken, userCode, "/sessions", { method: "GET" });
+}
+
+export async function deleteGuestSession(
+  shareToken: string,
+  userCode: string,
+  sessionId: number
+): Promise<ApiResponse<{ message: string }>> {
+  return guestRequest<{ message: string }>(shareToken, userCode, `/sessions/${sessionId}`, { method: "DELETE" });
+}
+
+export async function getGuestMessages(
+  shareToken: string,
+  userCode: string,
+  sessionId: number,
+  limit = 100
+): Promise<ApiResponse<{ id: number; uuid: string; role: string; content: string; created_at: string }[]>> {
+  return guestRequest(shareToken, userCode, `/sessions/${sessionId}/messages?limit=${limit}`, { method: "GET" });
+}
+
+export async function sendGuestMessage(
+  shareToken: string,
+  userCode: string,
+  sessionId: number,
+  content: string,
+  stream = true
+): Promise<ApiResponse<unknown>> {
+  return guestRequest(shareToken, userCode, `/sessions/${sessionId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ content, stream }),
+  });
+}
+
+export function sendGuestMessageStream(
+  shareToken: string,
+  userCode: string,
+  sessionId: number,
+  content: string,
+  onChunk: (chunk: string) => void,
+  onDone: (fullText: string) => void,
+  onError: (error: string) => void
+): AbortController {
+  const controller = new AbortController();
+  const url = `${getBaseUrl()}/api/v1/public/share/${shareToken}/sessions/${sessionId}/messages`;
+
+  (async () => {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Share-User-Code": userCode,
+        },
+        body: JSON.stringify({ content, stream: true }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok || !res.body) {
+        const text = await res.text();
+        onError(text || "Failed to send message");
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let fullText = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const payload = line.slice(6).trim();
+          if (!payload) continue;
+          try {
+            const evt = JSON.parse(payload);
+            if (evt.type === "delta" && evt.text) {
+              fullText += evt.text;
+              onChunk(evt.text);
+            } else if (evt.type === "done") {
+              onDone(fullText);
+              return;
+            } else if (evt.type === "error") {
+              onError(evt.error || "Stream error");
+              return;
+            }
+          } catch {
+            // ignore parse errors
+          }
+        }
+      }
+      onDone(fullText);
+    } catch (err) {
+      if ((err as Error).name !== "AbortError") {
+        onError((err as Error).message || "Network error");
+      }
+    }
+  })();
+
+  return controller;
+}

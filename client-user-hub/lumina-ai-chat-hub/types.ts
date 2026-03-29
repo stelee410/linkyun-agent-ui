@@ -73,22 +73,28 @@ export interface MomentPost {
   }[];
 }
 
-export type View = 'auth' | 'discovery' | 'messages' | 'moments' | 'contacts';
+export type View = 'auth' | 'discovery' | 'messages' | 'moments' | 'contacts' | 'shared_agent';
 
 /** URL 路径与视图映射：聊天 /messages、好友 /contacts、发现 /discovery、朋友圈 /moments */
-export const VIEW_PATHS: Record<Exclude<View, 'auth'>, string> = {
+export const VIEW_PATHS: Record<Exclude<View, 'auth' | 'shared_agent'>, string> = {
   discovery: '/discovery',
   messages: '/messages',
   contacts: '/contacts',
   moments: '/moments',
 };
 
+export function getShareTokenFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/sharedAgent\/([^/]+)/);
+  return match ? match[1] : null;
+}
+
 export function getViewFromPath(pathname: string): Exclude<View, 'auth'> {
   const p = pathname.replace(/\/$/, '') || '/';
   if (p === '/messages') return 'messages';
   if (p === '/contacts') return 'contacts';
   if (p === '/moments') return 'moments';
-  return 'discovery'; // /, /discovery, 或其他
+  if (p.startsWith('/sharedAgent/')) return 'shared_agent';
+  return 'discovery';
 }
 
 export interface ThemeConfig {
