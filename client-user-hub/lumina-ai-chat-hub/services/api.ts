@@ -697,6 +697,14 @@ export interface StreamEvent {
 }
 
 /** 流式发送 1v1 消息，通过回调逐块接收内容。若后端返回 JSON（非 SSE）则解析并回调 onDone。 */
+/** POST 请求本身失败（HTTP 非 200），后端未处理请求，可安全重试 */
+export class StreamHttpError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+    this.name = "StreamHttpError";
+  }
+}
+
 export async function sendUserMessageStream(
   apiKey: string,
   chatId: number,
@@ -719,7 +727,7 @@ export async function sendUserMessageStream(
   });
   if (!res.ok) {
     const errText = await res.text();
-    throw new Error(errText || `HTTP ${res.status}`);
+    throw new StreamHttpError(errText || `HTTP ${res.status}`, res.status);
   }
 
   const contentType = res.headers.get("Content-Type") ?? "";

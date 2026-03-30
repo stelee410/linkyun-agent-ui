@@ -24,6 +24,7 @@ import {
   getUserChatMessages,
   sendUserMessage,
   sendUserMessageStream,
+  StreamHttpError,
   toggleShareWithCreator,
   toggleGroupShare,
   clearUserChatMessages,
@@ -1058,8 +1059,16 @@ const AppContent: React.FC = () => {
 
         try {
           await tryStream();
-        } catch {
-          await tryNonStream();
+        } catch (err) {
+          if (err instanceof StreamHttpError) {
+            await tryNonStream();
+          } else {
+            setChatMessages((prev) => ({
+              ...prev,
+              [chatKey]: (prev[chatKey] || []).filter((m) => m.uuid !== tempAiUuid),
+            }));
+            setSendError('Message sent but response failed. Please refresh.');
+          }
         }
       }
     } catch (_e) {
