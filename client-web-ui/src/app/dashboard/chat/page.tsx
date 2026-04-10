@@ -7,6 +7,7 @@ import {
   getSessionMessages,
   sendMessage,
   sendMessageStream,
+  StreamHttpError,
   listAgents,
   createSession,
   getSession,
@@ -273,15 +274,20 @@ export default function ChatPage() {
     };
 
     try {
-      try {
-        await tryStream();
-      } catch {
-        await tryNonStream();
+      await tryStream();
+    } catch (err) {
+      if (err instanceof StreamHttpError) {
+        try {
+          await tryNonStream();
+        } catch {
+          setError("发送失败");
+          setInput(content);
+          setMessages((prev) => prev.filter((m) => m.id !== tempAssistantId));
+        }
+      } else {
+        setError("消息已发送但响应失败，请刷新页面查看。");
+        setMessages((prev) => prev.filter((m) => m.id !== tempAssistantId));
       }
-    } catch {
-      setError("发送失败");
-      setInput(content);
-      setMessages((prev) => prev.filter((m) => m.id !== tempAssistantId));
     } finally {
       setSending(false);
       setEdgeStatus(null);

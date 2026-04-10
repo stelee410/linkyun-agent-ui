@@ -1319,6 +1319,13 @@ export interface StreamEvent {
   error?: string;
 }
 
+export class StreamHttpError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+    this.name = "StreamHttpError";
+  }
+}
+
 /** 流式发送消息，通过回调逐块接收内容 */
 export async function sendMessageStream(
   apiKey: string,
@@ -1350,7 +1357,7 @@ export async function sendMessageStream(
   if (!res.ok) {
     const errText = await res.text();
     callbacks.onError?.(errText || `HTTP ${res.status}`);
-    throw new Error(errText || `HTTP ${res.status}`);
+    throw new StreamHttpError(errText || `HTTP ${res.status}`, res.status);
   }
   const reader = res.body?.getReader();
   if (!reader) {
