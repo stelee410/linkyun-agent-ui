@@ -970,7 +970,7 @@ export default function AgentEditPage() {
   const [motherlandNarrativeResult, setMotherlandNarrativeResult] = useState("");
   const [motherlandNarrativeGenerating, setMotherlandNarrativeGenerating] = useState(false);
   const [motherlandNarrativeError, setMotherlandNarrativeError] = useState("");
-  const motherlandAbortRef = useRef(false);
+
   const chatEndRef = useRef<HTMLDivElement>(null);
   const motherlandEndRef = useRef<HTMLDivElement>(null);
 
@@ -1043,7 +1043,7 @@ export default function AgentEditPage() {
     }
   }, [middleTab]);
 
-  // Auto-conversation loop with Motherland
+  // Single-round conversation with Motherland (manual mode)
   // If continuing=true, don't clear messages and don't require a topic
   const startAutoTalk = async (topicOverride?: string, continuing = false) => {
     const topic = (topicOverride ?? motherlandTopic).trim();
@@ -1053,38 +1053,30 @@ export default function AgentEditPage() {
     if (topic) setMotherlandTopic(topic);
     setMotherlandAutoRunning(true);
     if (!continuing) setMotherlandMessages([]);
-    motherlandAbortRef.current = false;
 
     const apiKey = auth.apiKey;
     const aid = Number(agentId);
-    let isFirst = !continuing && !!topic;
+    const isFirst = !continuing && !!topic;
 
-    while (!motherlandAbortRef.current) {
-      try {
-        const res = await autoTalkRound(apiKey, aid, isFirst ? topic : "");
-        if (motherlandAbortRef.current) break;
-        if (res.success && res.data) {
-          setMotherlandMessages((prev) => [
-            ...prev,
-            { role: "user", content: res.data!.agent_message },
-            { role: "assistant", content: res.data!.motherland_reply },
-          ]);
-          isFirst = false;
-        } else {
-          setMotherlandMessages((prev) => [
-            ...prev,
-            { role: "assistant", content: `对话出错：${res.error?.message ?? "未知错误"}` },
-          ]);
-          break;
-        }
-      } catch (err) {
-        if (motherlandAbortRef.current) break;
+    try {
+      const res = await autoTalkRound(apiKey, aid, isFirst ? topic : "");
+      if (res.success && res.data) {
         setMotherlandMessages((prev) => [
           ...prev,
-          { role: "assistant", content: `对话出错：${err instanceof Error ? err.message : "网络错误"}` },
+          { role: "user", content: res.data!.agent_message },
+          { role: "assistant", content: res.data!.motherland_reply },
         ]);
-        break;
+      } else {
+        setMotherlandMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `对话出错：${res.error?.message ?? "未知错误"}` },
+        ]);
       }
+    } catch (err) {
+      setMotherlandMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: `对话出错：${err instanceof Error ? err.message : "网络错误"}` },
+      ]);
     }
 
     setMotherlandAutoRunning(false);
@@ -2855,13 +2847,13 @@ export default function AgentEditPage() {
                   <div className="flex-1 overflow-y-auto p-4 space-y-4">
                     {motherlandMessages.length === 0 && !motherlandAutoRunning ? (
                       <div className="flex-1 flex flex-col items-center justify-center text-text-secondary text-sm py-12 gap-5">
-                        <p>点击播放键，开始与 Motherland 的自动对话</p>
+                        <p>点击播放键，开始与 Motherland 对话</p>
                         <div className="flex flex-wrap items-center justify-center gap-4">
                           <button
                             type="button"
                             onClick={() => { setMotherlandTopic(""); setMotherlandTopicModalOpen(true); }}
                             className="w-16 h-16 flex items-center justify-center rounded-full bg-primary hover:opacity-90 text-white transition-colors shadow-lg"
-                            title="开始自动对话"
+                            title="开始对话"
                           >
                             <svg width="24" height="28" viewBox="0 0 16 18" fill="currentColor"><path d="M15 9L1 17.66V0.34L15 9Z" /></svg>
                           </button>
@@ -2926,7 +2918,7 @@ export default function AgentEditPage() {
                           <span className="inline-block w-2 h-2 rounded-full bg-text-secondary animate-pulse" />
                           <span className="inline-block w-2 h-2 rounded-full bg-text-secondary animate-pulse [animation-delay:0.2s]" />
                           <span className="inline-block w-2 h-2 rounded-full bg-text-secondary animate-pulse [animation-delay:0.4s]" />
-                          <span className="ml-1">对话进行中...</span>
+                          <span className="ml-1">生成中...</span>
                         </div>
                       </div>
                     )}
@@ -2936,41 +2928,10 @@ export default function AgentEditPage() {
                   {(motherlandAutoRunning || motherlandMessages.length > 0) && (
                     <div className="p-3 border-t border-border flex flex-wrap justify-center items-center gap-3">
                       {motherlandAutoRunning ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => { motherlandAbortRef.current = true; }}
-                            className="w-10 h-10 flex items-center justify-center rounded-full bg-red-500 hover:bg-red-600 text-white transition-colors"
-                            title="停止"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect width="14" height="14" rx="2" /></svg>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={openMotherlandAvatarModal}
-                            className="px-4 py-2 rounded-lg border border-primary text-primary hover:bg-primary/10 text-sm font-medium transition-colors"
-                          >
-                            生成头像
-                          </button>
-                          <button
-                            type="button"
-                            onClick={openMotherlandNarrativeModal}
-                            className="px-4 py-2 rounded-lg border border-primary text-primary hover:bg-primary/10 text-sm font-medium transition-colors"
-                          >
-                            优化你的叙事
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setError("");
-                              openCharacterDesignModal();
-                            }}
-                            disabled={loading || !agent}
-                            className="px-4 py-2 rounded-lg border-2 border-cyan-600 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-50 dark:hover:bg-cyan-950/30 text-sm font-medium transition-colors disabled:opacity-50"
-                          >
-                            生成角色设定稿
-                          </button>
-                        </>
+                        <span className="text-sm text-text-secondary flex items-center gap-2">
+                          <span className="inline-block w-3 h-3 border-2 border-text-secondary border-t-transparent rounded-full animate-spin" />
+                          正在生成下一轮对话...
+                        </span>
                       ) : (
                         <>
                           <button
@@ -2979,7 +2940,7 @@ export default function AgentEditPage() {
                             className="px-5 py-2 bg-primary hover:opacity-90 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
                           >
                             <svg width="12" height="14" viewBox="0 0 16 18" fill="currentColor"><path d="M15 9L1 17.66V0.34L15 9Z" /></svg>
-                            继续
+                            下一轮
                           </button>
                           <button
                             type="button"
