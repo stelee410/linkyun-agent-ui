@@ -18,6 +18,7 @@ export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [invitationCode, setInvitationCode] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -61,7 +62,17 @@ export default function LoginPage() {
           setLoading(false);
           return;
         }
-        res = await register(username.trim(), email.trim(), password);
+        if (!invitationCode.trim()) {
+          setError("请输入邀请码");
+          setLoading(false);
+          return;
+        }
+        res = await register(
+          username.trim(),
+          email.trim(),
+          password,
+          invitationCode.trim()
+        );
       }
 
       if (res.success && res.data) {
@@ -199,6 +210,26 @@ export default function LoginPage() {
                 </button>
               </div>
             </div>
+
+            {mode === "register" && (
+              <div>
+                <label className="block text-sm text-text-secondary mb-1">邀请码
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary pointer-events-none">
+                    <LockIcon className="w-5 h-5" />
+                  </span>
+                  <input
+                    type="text"
+                    value={invitationCode}
+                    onChange={(e) => setInvitationCode(e.target.value)}
+                    placeholder="请输入邀请码"
+                    className="w-full pl-10 pr-3 py-2.5 bg-surface border border-border rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    required
+                  />
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="block text-sm text-text-secondary mb-1">API Service</label>

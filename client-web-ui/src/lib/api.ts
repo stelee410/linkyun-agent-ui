@@ -726,11 +726,17 @@ export async function login(
 export async function register(
   username: string,
   email: string,
-  password: string
+  password: string,
+  invitationCode: string
 ): Promise<ApiResponse<AuthResponse>> {
   return request<AuthResponse>("/auth/register", {
     method: "POST",
-    body: JSON.stringify({ username, email, password }),
+    body: JSON.stringify({
+      username,
+      email,
+      password,
+      invitation_code: invitationCode.trim(),
+    }),
   });
 }
 
