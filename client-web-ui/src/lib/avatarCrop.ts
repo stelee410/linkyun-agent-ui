@@ -5,7 +5,7 @@ import {
   type PixelCrop,
 } from "react-image-crop";
 
-export const AVATAR_MAX_SIZE = 256;
+export const AVATAR_MAX_SIZE = 1024;
 
 export function getCroppedBlob(
   image: HTMLImageElement,
@@ -80,7 +80,7 @@ export function getCroppedBlob(
               )
             ),
       "image/jpeg",
-      0.85
+      0.9
     );
   });
 }
