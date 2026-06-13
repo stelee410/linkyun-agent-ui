@@ -1619,8 +1619,12 @@ export default function AgentEditPage() {
   const handleDeleteSchedule = async () => {
     if (!auth?.apiKey || !agent) return;
     if (!confirm("确定要关闭自动发朋友圈吗？")) return;
-    await deleteMomentAutoSchedule(auth.apiKey, Number(agent.id));
-    setAutoSchedule(null);
+    const res = await deleteMomentAutoSchedule(auth.apiKey, Number(agent.id));
+    if (res.success) {
+      setAutoSchedule(null);
+    } else {
+      alert(res.error?.message || "关闭失败，请重试");
+    }
   };
 
   const handleDeleteMoment = async (momentId: number) => {
