@@ -1925,6 +1925,66 @@ export default function AgentEditPage() {
             </div>
           </div>
 
+          {/* 向用户展示思考过程 */}
+          <div className="px-4 py-3 border-b border-border">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-sm text-text-primary">向用户展示思考过程</span>
+                <p className="text-xs text-text-secondary mt-0.5">
+                  关闭后，终端用户在聊天中将看不到该 AI 的思考过程，用于维持人设沉浸
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!auth?.apiKey || !agent) return;
+                  const next = agent.config?.show_reasoning === false;
+                  const res = await updateAgent(auth.apiKey, agentId, { show_reasoning: next });
+                  if (res.success && res.data) setAgent(res.data);
+                }}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  agent.config?.show_reasoning !== false ? 'bg-primary' : 'bg-slate-300 dark:bg-slate-600'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    agent.config?.show_reasoning !== false ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
+          {/* 向用户展示工具调用 */}
+          <div className="px-4 py-3 border-b border-border">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-sm text-text-primary">向用户展示工具调用</span>
+                <p className="text-xs text-text-secondary mt-0.5">
+                  关闭后，终端用户在聊天中将看不到该 AI 的工具调用，用于维持人设沉浸
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!auth?.apiKey || !agent) return;
+                  const next = agent.config?.show_tools === false;
+                  const res = await updateAgent(auth.apiKey, agentId, { show_tools: next });
+                  if (res.success && res.data) setAgent(res.data);
+                }}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  agent.config?.show_tools !== false ? 'bg-primary' : 'bg-slate-300 dark:bg-slate-600'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    agent.config?.show_tools !== false ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
           {/* 知识库绑定 */}
           <div className="px-4 py-3 border-b border-border">
             <div>

@@ -71,6 +71,10 @@ export interface AgentConfig {
     /** 漫画设计稿静态文件名，对应 GET /api/v1/character-sheets/{filename} */
     character_design_sheet?: string;
   };
+  /** 是否向终端用户展示 AI 思考过程，未设或 true=显示，false=隐藏 */
+  show_reasoning?: boolean;
+  /** 是否向终端用户展示工具调用，未设或 true=显示，false=隐藏 */
+  show_tools?: boolean;
 }
 
 export interface RagConfig {
@@ -839,6 +843,8 @@ export async function updateAgent(
     agent_type?: 'cloud' | 'edge';
     memory_enabled?: boolean;
     hidden?: boolean;
+    show_reasoning?: boolean;
+    show_tools?: boolean;
     llm_api_key?: string | null;
     knowledge_base_id?: number | null;
     llm_provider?: string;
@@ -862,6 +868,8 @@ export async function updateAgent(
   if (data.agent_type != null) body.agent_type = data.agent_type;
   if (data.memory_enabled != null) body.memory_enabled = data.memory_enabled;
   if (data.hidden != null) body.hidden = data.hidden;
+  if (data.show_reasoning != null) body.show_reasoning = data.show_reasoning;
+  if (data.show_tools != null) body.show_tools = data.show_tools;
   if (data.llm_api_key !== undefined) body.llm_api_key = data.llm_api_key;
   if (data.knowledge_base_id !== undefined) body.knowledge_base_id = data.knowledge_base_id;
   if (data.llm_provider !== undefined) body.llm_provider = data.llm_provider;
